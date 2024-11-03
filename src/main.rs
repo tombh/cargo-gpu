@@ -5,6 +5,51 @@ use spirv_builder::{CompileResult, MetadataPrintout, ModuleResult, SpirvBuilder}
 
 mod linkage;
 
+const RUSTC_CODEGEN_SPIRV_PATH: &str = std::env!("DYLIB_PATH");
+
+fn dylib_path_envvar() -> &'static str {
+    if cfg!(windows) {
+        "PATH"
+    } else if cfg!(target_os = "macos") {
+        "DYLD_FALLBACK_LIBRARY_PATH"
+    } else {
+        "LD_LIBRARY_PATH"
+    }
+}
+
+fn dylib_path() -> Vec<std::path::PathBuf> {
+    match std::env::var_os(dylib_path_envvar()) {
+        Some(var) => std::env::split_paths(&var).collect(),
+        None => Vec::new(),
+    }
+}
+
+fn set_rustc_codegen_spirv_path() {
+    let var = dylib_path_envvar();
+    let mut paths = dylib_path();
+    paths.push(
+        std::path::PathBuf::from(RUSTC_CODEGEN_SPIRV_PATH)
+            .parent()
+            .unwrap()
+            .to_path_buf(),
+    );
+    std::env::set_var(
+        var,
+        std::env::join_paths(paths).expect("could not join paths"),
+    );
+    log::trace!("library search paths: {:#?}", dylib_path());
+}
+
+const RUSTC_NIGHTLY_CHANNEL: &str = std::env!("RUSTC_NIGHTLY_CHANNEL");
+
+fn set_rustup_toolchain() {
+    log::trace!(
+        "setting RUSTUP_TOOLCHAIN = '{}'",
+        RUSTC_NIGHTLY_CHANNEL.trim_matches('"')
+    );
+    std::env::set_var("RUSTUP_TOOLCHAIN", RUSTC_NIGHTLY_CHANNEL.trim_matches('"'));
+}
+
 #[derive(Clone, Copy, Default)]
 pub enum ShaderLang {
     #[default]
@@ -28,7 +73,7 @@ impl core::str::FromStr for ShaderLang {
 #[clap(author, version, about)]
 struct Cli {
     /// Directory containing the shader crate to compile.
-    #[clap(long, short, default_value = "renderling")]
+    #[clap(long, short, default_value = "./")]
     shader_crate: std::path::PathBuf,
 
     /// Whether to write the spv or wgsl
@@ -48,7 +93,7 @@ struct Cli {
     features: Vec<String>,
 
     /// Path to the output directory for the compiled shaders.
-    #[clap(long, short, default_value = "../crates/renderling/src/linkage")]
+    #[clap(long, short, default_value = "./")]
     output_dir: std::path::PathBuf,
 
     /// If set the shaders will be compiled but not put into place.
@@ -73,7 +118,8 @@ fn wgsl(spv_filepath: impl AsRef<std::path::Path>, destination: impl AsRef<std::
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::builder().init();
 
-    log::info!("args: {:#?}", std::env::args());
+    set_rustc_codegen_spirv_path();
+    set_rustup_toolchain();
 
     let Cli {
         shader_crate,
@@ -83,7 +129,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         features,
         output_dir,
         dry_run,
-    } = Cli::parse();
+    } = Cli::parse_from(std::env::args().filter(|p| {
+        // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
+        // as the first parameter, which we want to ignore.
+        p != "gpu"
+    }));
 
     std::fs::create_dir_all(&output_dir).unwrap();
 

@@ -3,8 +3,13 @@ name = "cargo-gpu"
 version = "0.1.0"
 edition = "2021"
 description = "Generates shader .spv files from rust-gpu shader crates"
+build = "src/build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+env_home = "0.1.0"
+toml = "0.8.19"
 
 [dependencies]
 clap = { version = "4.4.8", features = ["derive"] }
