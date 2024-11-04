@@ -51,9 +51,7 @@ fn main() {
 
     println!("cargo:rustc-env=DYLIB_PATH={}", dest_path.display());
 
-    let rust_toolchain_toml_path = find_file(&out_dir, "rust-toolchain.toml");
-    let rust_toolchain_toml = std::fs::read_to_string(rust_toolchain_toml_path)
-        .unwrap_or_else(|e| panic!("could not read rust-toolchain.toml: {e}"));
+    let rust_toolchain_toml = include_str!("../rust-toolchain.toml");
     let table = toml::Table::from_str(&rust_toolchain_toml)
         .unwrap_or_else(|e| panic!("could not parse rust-toolchain.toml: {e}"));
     let toolchain = table
