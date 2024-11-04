@@ -10,6 +10,7 @@ build = "src/build.rs"
 [build-dependencies]
 env_home = "0.1.0"
 toml = "0.8.19"
+spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu" }
 
 [dependencies]
 clap = { version = "4.4.8", features = ["derive"] }

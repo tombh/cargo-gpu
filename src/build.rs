@@ -35,7 +35,7 @@ fn main() {
     );
     let built_dylib_path = find_file(&out_dir, &dylib_filename());
 
-    let dest_dir = std::env::home_dir()
+    let dest_dir = env_home::env_home_dir()
         .expect("home directory is not set")
         .join(".rust-gpu");
     std::fs::create_dir_all(&dest_dir).expect("could not create ~/.rust-gpu directory");
