@@ -1,44 +1,46 @@
 //! This program builds rust-gpu shader crates and writes generated spv files
 //! into the main source repo.
+use std::io::Write;
+
 use clap::Parser;
 use spirv_builder::{CompileResult, MetadataPrintout, ModuleResult, SpirvBuilder};
 
-mod linkage;
+use cargo_gpu::linkage;
 
 const RUSTC_CODEGEN_SPIRV_PATH: &str = std::env!("DYLIB_PATH");
 
-fn dylib_path_envvar() -> &'static str {
-    if cfg!(windows) {
-        "PATH"
-    } else if cfg!(target_os = "macos") {
-        "DYLD_FALLBACK_LIBRARY_PATH"
-    } else {
-        "LD_LIBRARY_PATH"
-    }
-}
+// fn dylib_path_envvar() -> &'static str {
+//     if cfg!(windows) {
+//         "PATH"
+//     } else if cfg!(target_os = "macos") {
+//         "DYLD_FALLBACK_LIBRARY_PATH"
+//     } else {
+//         "LD_LIBRARY_PATH"
+//     }
+// }
 
-fn dylib_path() -> Vec<std::path::PathBuf> {
-    match std::env::var_os(dylib_path_envvar()) {
-        Some(var) => std::env::split_paths(&var).collect(),
-        None => Vec::new(),
-    }
-}
+// fn dylib_path() -> Vec<std::path::PathBuf> {
+//     match std::env::var_os(dylib_path_envvar()) {
+//         Some(var) => std::env::split_paths(&var).collect(),
+//         None => Vec::new(),
+//     }
+// }
 
-fn set_rustc_codegen_spirv_path() {
-    let var = dylib_path_envvar();
-    let mut paths = dylib_path();
-    paths.push(
-        std::path::PathBuf::from(RUSTC_CODEGEN_SPIRV_PATH)
-            .parent()
-            .unwrap()
-            .to_path_buf(),
-    );
-    std::env::set_var(
-        var,
-        std::env::join_paths(paths).expect("could not join paths"),
-    );
-    log::trace!("library search paths: {:#?}", dylib_path());
-}
+// fn set_rustc_codegen_spirv_path() {
+//     let var = dylib_path_envvar();
+//     let mut paths = dylib_path();
+//     paths.push(
+//         std::path::PathBuf::from(RUSTC_CODEGEN_SPIRV_PATH)
+//             .parent()
+//             .unwrap()
+//             .to_path_buf(),
+//     );
+//     std::env::set_var(
+//         var,
+//         std::env::join_paths(paths).expect("could not join paths"),
+//     );
+//     log::trace!("library search paths: {:#?}", dylib_path());
+// }
 
 const RUSTC_NIGHTLY_CHANNEL: &str = std::env!("RUSTC_NIGHTLY_CHANNEL");
 
@@ -50,84 +52,51 @@ fn set_rustup_toolchain() {
     std::env::set_var("RUSTUP_TOOLCHAIN", RUSTC_NIGHTLY_CHANNEL.trim_matches('"'));
 }
 
-#[derive(Clone, Copy, Default)]
-pub enum ShaderLang {
-    #[default]
-    Spv,
-    Wgsl,
-}
-
-impl core::str::FromStr for ShaderLang {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "spv" => Ok(ShaderLang::Spv),
-            "wgsl" => Ok(ShaderLang::Wgsl),
-            s => Err(format!("not a valid option '{s}'")),
-        }
-    }
-}
-
 #[derive(Parser)]
 #[clap(author, version, about)]
-struct Cli {
+pub struct Cli {
     /// Directory containing the shader crate to compile.
-    #[clap(long, short, default_value = "./")]
-    shader_crate: std::path::PathBuf,
-
-    /// Whether to write the spv or wgsl
-    #[clap(long, default_value = "spv")]
-    shader_lang: ShaderLang,
+    #[clap(long, default_value = "./")]
+    pub shader_crate: std::path::PathBuf,
 
     /// Shader target.
     #[clap(long, default_value = "spirv-unknown-vulkan1.2")]
-    shader_target: String,
+    pub shader_target: String,
+
+    /// Path to the output JSON manifest file where the paths to .spv files
+    /// and the names of their entry points will be saved.
+    #[clap(long)]
+    pub shader_manifest: Option<std::path::PathBuf>,
 
     /// Set cargo default-features.
     #[clap(long)]
-    no_default_features: bool,
+    pub no_default_features: bool,
 
     /// Set cargo features.
     #[clap(long)]
-    features: Vec<String>,
+    pub features: Vec<String>,
 
     /// Path to the output directory for the compiled shaders.
     #[clap(long, short, default_value = "./")]
-    output_dir: std::path::PathBuf,
+    pub output_dir: std::path::PathBuf,
 
     /// If set the shaders will be compiled but not put into place.
     #[clap(long, short)]
-    dry_run: bool,
-}
-
-fn wgsl(spv_filepath: impl AsRef<std::path::Path>, destination: impl AsRef<std::path::Path>) {
-    let bytes = std::fs::read(spv_filepath).unwrap();
-    let opts = naga::front::spv::Options::default();
-    let module = naga::front::spv::parse_u8_slice(&bytes, &opts).unwrap();
-    let mut validator =
-        naga::valid::Validator::new(Default::default(), naga::valid::Capabilities::empty());
-    let info = validator.validate(&module).unwrap();
-    let wgsl =
-        naga::back::wgsl::write_string(&module, &info, naga::back::wgsl::WriterFlags::empty())
-            .unwrap();
-    let destination = destination.as_ref().with_extension("wgsl");
-    std::fs::write(destination, wgsl).unwrap();
+    pub dry_run: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::builder().init();
 
-    set_rustc_codegen_spirv_path();
     set_rustup_toolchain();
 
     let Cli {
         shader_crate,
-        shader_lang,
         shader_target,
         no_default_features,
         features,
         output_dir,
+        shader_manifest: output_manifest,
         dry_run,
     } = Cli::parse_from(std::env::args().filter(|p| {
         // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
@@ -151,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         module,
     } = {
         let mut builder = SpirvBuilder::new(shader_crate, &shader_target)
-            //.shader_panic_strategy(spirv_builder::ShaderPanicStrategy::UNSOUND_DO_NOT_USE_UndefinedBehaviorViaUnreachable)
+            .rustc_codegen_spirv_location(RUSTC_CODEGEN_SPIRV_PATH)
             .print_metadata(MetadataPrintout::None)
             .multimodule(true);
 
@@ -175,19 +144,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             for (entry, filepath) in modules.into_iter() {
                 let path = dir.join(filepath.file_name().unwrap());
                 if !dry_run {
-                    match shader_lang {
-                        ShaderLang::Spv => {
-                            std::fs::copy(filepath, &path).unwrap();
-                        }
-                        ShaderLang::Wgsl => {
-                            wgsl(filepath, &path);
-                        }
-                    }
+                    std::fs::copy(filepath, &path).unwrap();
                 }
-                shaders.push(linkage::Linkage {
-                    entry_point: entry,
-                    source_path: path,
-                });
+                shaders.push(linkage::Linkage::new(entry, path));
             }
         }
         ModuleResult::SingleModule(filepath) => {
@@ -196,44 +155,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::fs::copy(filepath, &path).unwrap();
             }
             for entry in entry_points {
-                shaders.push(linkage::Linkage {
-                    entry_point: entry,
-                    source_path: path.clone(),
-                });
+                shaders.push(linkage::Linkage::new(entry, path.clone()));
             }
         }
     }
 
-    if dry_run {
-        println!("\nNot writing shaders.rs because --dry-run was set.\n");
-    } else {
-        println!("\nWriting shaders...");
-    };
-
-    let mut set = std::collections::HashSet::<&str>::default();
-
-    for linkage in shaders.iter() {
-        let fn_name = linkage.fn_name();
-
-        if set.contains(fn_name) {
-            panic!("Shader name '{fn_name}' is used for two or more shaders, aborting!");
-        }
-        set.insert(fn_name);
-
-        let filepath = dir.join(fn_name).with_extension("rs");
-        let contents = linkage.to_string(shader_lang);
-        if !dry_run {
-            std::fs::write(&filepath, contents).unwrap();
-            std::process::Command::new("rustfmt")
-                .args([&format!("{}", filepath.display())])
-                .output()
-                .expect("could not format generated code");
-            println!("  {}", filepath.display());
+    // Write the shader manifest json file
+    if !dry_run {
+        if let Some(manifest_path) = output_manifest {
+            // Sort the contents so the output is deterministic
+            shaders.sort();
+            // UNWRAP: safe because we know this always serializes
+            let json = serde_json::to_string_pretty(&shaders).unwrap();
+            let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|e| {
+                log::error!(
+                    "could not create shader manifest file '{}': {e}",
+                    manifest_path.display(),
+                );
+                panic!("{e}")
+            });
+            file.write_all(json.as_bytes()).unwrap_or_else(|e| {
+                log::error!(
+                    "could not write shader manifest file '{}': {e}",
+                    manifest_path.display(),
+                );
+                panic!("{e}")
+            });
         }
     }
 
     let end = std::time::Instant::now();
-    println!("Finished in {:?}", (end - start));
+    log::debug!("finished in {:?}", (end - start));
 
     Ok(())
 }

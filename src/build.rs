@@ -52,7 +52,7 @@ fn main() {
     println!("cargo:rustc-env=DYLIB_PATH={}", dest_path.display());
 
     let rust_toolchain_toml = include_str!("../rust-toolchain.toml");
-    let table = toml::Table::from_str(&rust_toolchain_toml)
+    let table = toml::Table::from_str(rust_toolchain_toml)
         .unwrap_or_else(|e| panic!("could not parse rust-toolchain.toml: {e}"));
     let toolchain = table
         .get("toolchain")
