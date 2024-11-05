@@ -494,6 +494,7 @@ checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 [[package]]
 name = "rustc_codegen_spirv"
 version = "0.9.0"
+source = "git+https://github.com/Rust-GPU/rust-gpu?branch=feature/spirv-builder-rustc-codegen-spirv-location#ce00c8b3a2d1046566d26da4c9d25092b051156c"
 dependencies = [
  "ar",
  "either",
@@ -518,6 +519,7 @@ dependencies = [
 [[package]]
 name = "rustc_codegen_spirv-types"
 version = "0.9.0"
+source = "git+https://github.com/Rust-GPU/rust-gpu?branch=feature/spirv-builder-rustc-codegen-spirv-location#ce00c8b3a2d1046566d26da4c9d25092b051156c"
 dependencies = [
  "rspirv",
  "serde",
@@ -645,6 +647,7 @@ dependencies = [
 [[package]]
 name = "spirv-builder"
 version = "0.9.0"
+source = "git+https://github.com/Rust-GPU/rust-gpu?branch=feature/spirv-builder-rustc-codegen-spirv-location#ce00c8b3a2d1046566d26da4c9d25092b051156c"
 dependencies = [
  "memchr",
  "raw-string",
