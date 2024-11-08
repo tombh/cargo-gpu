@@ -7,6 +7,7 @@ use std::{io::Write, str::FromStr};
 use cargo_gpu_wire_types::{Linkage, ShaderModule};
 use clap::Parser;
 
+// TODO: expand the sources of spirv versions
 #[derive(Debug, Clone)]
 enum SpirvVersion {
     LocalPath(std::path::PathBuf),
