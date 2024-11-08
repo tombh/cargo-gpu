@@ -9,39 +9,6 @@ use cargo_gpu::linkage;
 
 const RUSTC_CODEGEN_SPIRV_PATH: &str = std::env!("DYLIB_PATH");
 
-// fn dylib_path_envvar() -> &'static str {
-//     if cfg!(windows) {
-//         "PATH"
-//     } else if cfg!(target_os = "macos") {
-//         "DYLD_FALLBACK_LIBRARY_PATH"
-//     } else {
-//         "LD_LIBRARY_PATH"
-//     }
-// }
-
-// fn dylib_path() -> Vec<std::path::PathBuf> {
-//     match std::env::var_os(dylib_path_envvar()) {
-//         Some(var) => std::env::split_paths(&var).collect(),
-//         None => Vec::new(),
-//     }
-// }
-
-// fn set_rustc_codegen_spirv_path() {
-//     let var = dylib_path_envvar();
-//     let mut paths = dylib_path();
-//     paths.push(
-//         std::path::PathBuf::from(RUSTC_CODEGEN_SPIRV_PATH)
-//             .parent()
-//             .unwrap()
-//             .to_path_buf(),
-//     );
-//     std::env::set_var(
-//         var,
-//         std::env::join_paths(paths).expect("could not join paths"),
-//     );
-//     log::trace!("library search paths: {:#?}", dylib_path());
-// }
-
 const RUSTC_NIGHTLY_CHANNEL: &str = std::env!("RUSTC_NIGHTLY_CHANNEL");
 
 fn set_rustup_toolchain() {

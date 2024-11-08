@@ -1,7 +1,6 @@
 //! Build script that copies the built `librustc_codegen_spirv.dylib` into
 //! a known location.
-
-//const DYLIB_FILENAME: &str = "librustc_codegen_spirv.dylib";
+// TODO: remove the dependency on spirv-builder and subsequently rustc_codegen_spirv.
 
 use std::str::FromStr;
 
