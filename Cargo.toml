@@ -1,42 +1,22 @@
-[package]
-name = "cargo-gpu"
-version = "0.1.0"
-edition = "2021"
-description = "Generates shader .spv files from rust-gpu shader crates"
-build = "src/build.rs"
+[workspace]
+members = [
+    "crates/cargo-gpu", 
+    "crates/cargo-gpu-wire-types",
+]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+exclude = [
+    "crates/spirv-builder-cli"
+]
 
-[[bin]]
-name = "cargo-gpu"
+resolver = "2"
 
-[lib]
-name = "cargo_gpu"
-
-[build-dependencies]
-env_home = "0.1.0"
-toml = "0.8.19"
-spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu", branch = "feature/spirv-builder-rustc-codegen-spirv-location" }
-
-[dependencies]
+[workspace.dependencies]
 clap = { version = "4.4.8", features = ["derive"] }
+directories = "5.0.1"
+env_home = "0.1.0"
 env_logger = "0.10"
 log = "0.4"
-serde = "1.0.214"
+serde = { version = "1.0.214", features = ["derive"] }
 serde_json = "1.0.132"
-spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu", branch = "feature/spirv-builder-rustc-codegen-spirv-location" }
+toml = "0.8.19"
 
-# Enable incremental by default in release mode.
-[profile.release]
-incremental = true
-# HACK(eddyb) this is the default but without explicitly specifying it, Cargo
-# will treat the identical settings in `[profile.release.build-override]` below
-# as different sets of `rustc` flags and will not reuse artifacts between them.
-codegen-units = 256
-
-# Compile build-dependencies in release mode with the same settings
-# as regular dependencies (including the incremental enabled above).
-[profile.release.build-override]
-opt-level = 3
-incremental = true
-codegen-units = 256

@@ -1,0 +1,13 @@
+[package]
+name = "spirv-builder-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cargo-gpu-wire-types = { version = "0.1", path = "../cargo-gpu-wire-types" }
+env_home = "0.1.0"
+env_logger = "0.10"
+log = "0.4"
+serde_json = "1.0.132"
+spirv-builder = { git = "https://github.com/Rust-GPU/rust-gpu" }
+toml = "0.8.19"
