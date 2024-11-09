@@ -7,34 +7,40 @@ use std::{io::Write, str::FromStr};
 use cargo_gpu_wire_types::{spirv_builder_cli::ShaderModule, Linkage};
 use clap::Parser;
 
+#[derive(Debug, Clone)]
+enum GitSource {
+    Branch(String),
+    Rev(String),
+    Tag(String),
+}
+
+impl Default for GitSource {
+    fn default() -> Self {
+        GitSource::Branch("main".into())
+    }
+}
+
+impl core::fmt::Display for GitSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GitSource::Branch(b) => b.fmt(f),
+            GitSource::Rev(r) => r.fmt(f),
+            GitSource::Tag(t) => t.fmt(f),
+        }
+    }
+}
+
 /// Location of `cargo-gpu` source, which contains `crates/spirv-builder-cli`.
 #[derive(Debug, Clone)]
 enum SpirvCli {
-    Git(String),
+    Git { url: String, source: GitSource },
     LocalPath(std::path::PathBuf),
-}
-
-impl FromStr for SpirvCli {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.starts_with("https://") || s.starts_with("ssh://") || s.starts_with("git@") {
-            Ok(SpirvCli::Git(s.to_string()))
-        } else {
-            let local_path = std::path::PathBuf::from(s);
-            if local_path.is_dir() {
-                Ok(SpirvCli::LocalPath(local_path))
-            } else {
-                Err(format!("local path '{s}' is not a directory"))
-            }
-        }
-    }
 }
 
 impl core::fmt::Display for SpirvCli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SpirvCli::Git(url) => url.fmt(f),
+            SpirvCli::Git { url, source } => format!("{url}#{source}").fmt(f),
             SpirvCli::LocalPath(path) => path.display().fmt(f),
         }
     }
@@ -43,19 +49,11 @@ impl core::fmt::Display for SpirvCli {
 impl SpirvCli {
     fn to_dirname(&self) -> String {
         match self {
-            SpirvCli::Git(url) => url.clone(),
+            SpirvCli::Git { url, source } => format!("{url}#{source}"),
             SpirvCli::LocalPath(path) => path.canonicalize().unwrap().display().to_string(),
         }
         .replace([std::path::MAIN_SEPARATOR, '.', ':', '@'], "_")
         .to_string()
-    }
-
-    fn cached_rust_toolchain_toml_path(&self) -> std::path::PathBuf {
-        let checkout_dir = cache_dir().join(self.to_dirname());
-        checkout_dir
-            .join("crates")
-            .join("spirv-builder-cli")
-            .join("rust-toolchain.toml")
     }
 
     fn cached_checkout_path(&self) -> std::path::PathBuf {
@@ -74,8 +72,8 @@ impl SpirvCli {
     fn cargo_build_params(&self) -> Vec<String> {
         let checkout = self.cached_checkout_path();
         let cargo_gpu_path = match self {
-            SpirvCli::Git(_) => &checkout,
             SpirvCli::LocalPath(path) => path,
+            _ => &checkout,
         };
         let manifest_path = cargo_gpu_path
             .join("crates")
@@ -94,7 +92,7 @@ impl SpirvCli {
     }
 
     fn perform_checkout(&self, refresh_git_source: bool) {
-        if let SpirvCli::Git(url) = self {
+        if let SpirvCli::Git { url, source } = self {
             let checkout_path = self.cached_checkout_path();
             let git_path = checkout_path.join(".git");
             if git_path.exists() {
@@ -123,6 +121,16 @@ impl SpirvCli {
                     .output()
                     .unwrap();
                 assert!(output.status.success(), "could not checkout git source");
+
+                let output = std::process::Command::new("git")
+                    .current_dir(&checkout_path)
+                    .arg("checkout")
+                    .arg(source.to_string())
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .output()
+                    .unwrap();
+                assert!(output.status.success(), "could not checkout {source}");
             }
             log::info!("...checkout done.");
         }
@@ -152,8 +160,8 @@ impl SpirvCli {
         }
 
         let path = match self {
-            SpirvCli::Git(_) => self.cached_checkout_path(),
             SpirvCli::LocalPath(path) => path.clone(),
+            _ => self.cached_checkout_path(),
         };
         toolchain_from_path(&path)
     }
@@ -228,9 +236,28 @@ impl SpirvCli {
 #[derive(Parser)]
 #[clap(author, version, about)]
 struct Cli {
-    /// Version of `spirv-std` used to compile shaders.
-    #[clap(default_value = "./")]
-    spirv_version: SpirvCli,
+    // /// Version of `spirv-builder-cli` used to compile shaders.
+    // #[clap(long)]
+    // spirv_cli_version: Option<String>,
+    /// Git URL of `cargo-gpu` containing `spirv-builder-cli` used to compile shaders.
+    #[clap(long)]
+    spirv_cli_git: Option<String>,
+
+    /// Tag of Git repo of `cargo-gpu` containing `spirv-builder-cli` used to compile shaders.
+    #[clap(long)]
+    spirv_cli_tag: Option<String>,
+
+    /// Branch of Git repo of `cargo-gpu` containing `spirv-builder-cli` used to compile shaders.
+    #[clap(long)]
+    spirv_cli_branch: Option<String>,
+
+    /// Revision (sha) of Git repo of `cargo-gpu` containing `spirv-builder-cli` used to compile shaders.
+    #[clap(long)]
+    spirv_cli_rev: Option<String>,
+
+    /// Path of a local repo of `cargo-gpu` containing `spirv-builder-cli` used to compile shaders.
+    #[clap(long)]
+    spirv_cli_path: Option<String>,
 
     /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
     #[clap(long)]
@@ -284,7 +311,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::builder().init();
 
     let Cli {
-        spirv_version,
         force_spirv_cli_rebuild,
         refresh_spirv_cli,
         shader_crate,
@@ -294,11 +320,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output_dir,
         shader_manifest: output_manifest,
         dry_run,
+        // spirv_cli_version,
+        spirv_cli_git,
+        spirv_cli_tag,
+        spirv_cli_branch,
+        spirv_cli_rev,
+        spirv_cli_path,
     } = Cli::parse_from(std::env::args().filter(|p| {
         // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
         // as the first parameter, which we want to ignore.
         p != "gpu"
     }));
+    let cli_git = spirv_cli_git.map(|url| {
+        let tag = spirv_cli_tag.map(GitSource::Tag);
+        let rev = spirv_cli_rev.map(GitSource::Rev);
+        let branch = spirv_cli_branch.map(GitSource::Branch);
+        SpirvCli::Git {
+            url,
+            source: tag.or(rev).or(branch).unwrap_or_default(),
+        }
+    });
+    let cli_path = spirv_cli_path.map(|p| SpirvCli::LocalPath(p.into()));
+    // Temporarily require git or path
+    let spirv_version = cli_git.or(cli_path).unwrap_or_else(|| {
+        panic!("must supply --spirv-cli-git or --spirv-cli-path");
+    });
     log::info!("using spirv-std version '{spirv_version}'");
 
     // Ensure the cache dir exists
