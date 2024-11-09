@@ -18,6 +18,7 @@ env_logger.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tempdir = "0.3.7"
 toml.workspace = true
 
 # Enable incremental by default in release mode.
