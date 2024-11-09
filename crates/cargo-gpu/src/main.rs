@@ -4,7 +4,7 @@
 //! It uses these tools to compile Rust code into SPIR-V.
 use std::{io::Write, str::FromStr};
 
-use cargo_gpu_wire_types::{Linkage, ShaderModule};
+use cargo_gpu_wire_types::{spirv_builder_cli::ShaderModule, Linkage};
 use clap::Parser;
 
 // TODO: expand the sources of spirv versions

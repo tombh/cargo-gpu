@@ -1,21 +1,5 @@
 //! Wire types for `cargo-gpu` and `spirv-builder-cli`.
 
-/// A built shader entry-point, assumed to be still in the build tree.
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ShaderModule {
-    pub entry: String,
-    pub path: std::path::PathBuf,
-}
-
-impl ShaderModule {
-    pub fn new(entry: impl AsRef<str>, path: impl AsRef<std::path::Path>) -> Self {
-        Self {
-            entry: entry.as_ref().into(),
-            path: path.as_ref().into(),
-        }
-    }
-}
-
 /// Shader source and entry point that can be used to create shader linkage.
 #[derive(serde::Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Linkage {
@@ -68,5 +52,22 @@ pub mod spirv_builder_cli {
 
         /// Dry run or not
         pub dry_run: bool,
+    }
+
+    /// A built shader entry-point, used in `spirv-builder-cli` to generate
+    /// a `build-manifest.json` used by `cargo-gpu`.
+    #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct ShaderModule {
+        pub entry: String,
+        pub path: std::path::PathBuf,
+    }
+
+    impl ShaderModule {
+        pub fn new(entry: impl AsRef<str>, path: impl AsRef<std::path::Path>) -> Self {
+            Self {
+                entry: entry.as_ref().into(),
+                path: path.as_ref().into(),
+            }
+        }
     }
 }

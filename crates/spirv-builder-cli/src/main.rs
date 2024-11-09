@@ -18,8 +18,7 @@ fn main() {
 
     set_rustup_toolchain();
 
-    let mut args = std::env::args().collect::<Vec<_>>();
-
+    let args = std::env::args().collect::<Vec<_>>();
     let Args {
         dylib_path,
         shader_crate,
