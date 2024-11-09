@@ -113,7 +113,7 @@ impl SpirvCli {
             } else {
                 log::info!("checking out source '{}'", checkout_path.display());
                 let output = std::process::Command::new("git")
-                    .args(["clone", "--depth=1", "--no-tags"])
+                    .arg("clone")
                     .arg(url)
                     .arg(&checkout_path)
                     .stdout(std::process::Stdio::inherit())
@@ -122,9 +122,10 @@ impl SpirvCli {
                     .unwrap();
                 assert!(output.status.success(), "could not checkout git source");
 
+                log::info!("checking out source '{}'", checkout_path.display());
                 let output = std::process::Command::new("git")
                     .current_dir(&checkout_path)
-                    .arg("checkout")
+                    .arg("switch")
                     .arg(source.to_string())
                     .stdout(std::process::Stdio::inherit())
                     .stderr(std::process::Stdio::inherit())
