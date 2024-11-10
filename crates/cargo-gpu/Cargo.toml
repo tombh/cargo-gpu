@@ -10,10 +10,6 @@ readme = "../../README.md"
 [lib]
 name = "cargo_gpu"
 
-[build-dependencies]
-env_home.workspace = true
-toml.workspace = true
-
 [dependencies]
 clap.workspace = true
 directories.workspace = true
@@ -21,8 +17,6 @@ env_logger.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tempdir = "0.3.7"
-toml.workspace = true
 
 # Enable incremental by default in release mode.
 [profile.release]
