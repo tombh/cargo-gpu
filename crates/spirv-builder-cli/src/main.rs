@@ -1,10 +1,8 @@
 //! This program builds rust-gpu shader crates and writes generated spv files
 //! into the main source repo.
-use cargo_gpu_wire_types::spirv_builder_cli::{Args, ShaderModule};
 use spirv_builder::{CompileResult, MetadataPrintout, ModuleResult, SpirvBuilder};
 
-mod interface;
-use interface::{Args, ShaderModule};
+use spirv_builder_cli::spirv_builder_cli::{Args, ShaderModule};
 
 const RUSTC_NIGHTLY_CHANNEL: &str = "${CHANNEL}";
 
