@@ -3,7 +3,10 @@
 use cargo_gpu_wire_types::spirv_builder_cli::{Args, ShaderModule};
 use spirv_builder::{CompileResult, MetadataPrintout, ModuleResult, SpirvBuilder};
 
-const RUSTC_NIGHTLY_CHANNEL: &str = std::env!("RUSTC_NIGHTLY_CHANNEL");
+mod interface;
+use interface::{Args, ShaderModule};
+
+const RUSTC_NIGHTLY_CHANNEL: &str = "${CHANNEL}";
 
 fn set_rustup_toolchain() {
     log::trace!(
