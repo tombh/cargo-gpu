@@ -65,20 +65,20 @@ const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
 
 const SPIRV_STD_TOOLCHAIN_PAIRS: &[(&str, &str)] = &[("0.10", "nightly-2024-04-24")];
 
-/// Location of `cargo-gpu` source, which contains `crates/spirv-builder-cli`.
+/// Cargo dependency for `spirv-builder` and the rust toolchain channel.
 #[derive(Debug, Clone)]
-struct SpirvCli {
+struct Spirv {
     dep: String,
     channel: String,
 }
 
-impl core::fmt::Display for SpirvCli {
+impl core::fmt::Display for Spirv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         format!("{}+{}", self.dep, self.channel).fmt(f)
     }
 }
 
-impl SpirvCli {
+impl Spirv {
     /// Returns a string suitable to use as a directory.
     ///
     /// Created from the spirv-builder source dep and the rustc channel.
@@ -133,8 +133,8 @@ struct Install {
 }
 
 impl Install {
-    fn spirv_cli(&self) -> SpirvCli {
-        SpirvCli {
+    fn spirv_cli(&self) -> Spirv {
+        Spirv {
             dep: self.spirv_builder.clone(),
             channel: self.rust_toolchain.clone(),
         }
