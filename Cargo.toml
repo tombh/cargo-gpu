@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "crates/cargo-gpu", 
-    "crates/cargo-gpu-wire-types",
 ]
 
 exclude = [

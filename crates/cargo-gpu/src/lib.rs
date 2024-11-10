@@ -1,4 +1,6 @@
 //! Wire types for `cargo-gpu` and `spirv-builder-cli`.
+//!
+//! This file is copied by `cargo-gpu` into the build tree of `spirv-builder-cli`.
 
 /// Shader source and entry point that can be used to create shader linkage.
 #[derive(serde::Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
