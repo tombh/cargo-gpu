@@ -23,4 +23,12 @@ Use `cargo gpu help` to see other options :)
 
 ### Next Steps
 
-TODO(schell) - finish up the cargo-generate template repo and explain it here.
+You can try this out using the example repo at <https://github.com/rust-GPU/shader-crate-template>.
+Keep in mind <https://github.com/rust-GPU/shader-crate-template> is _not_ yet a cargo generate template,
+it's just a normal repo.
+
+```
+git clone https://github.com/rust-GPU/shader-crate-template
+cd shader-crate-template
+cargo gpu build
+```
