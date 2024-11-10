@@ -2,10 +2,57 @@
 //!
 //! This program manages installations of `spirv-builder-cli` and `rustc_codegen_spirv`.
 //! It uses these tools to compile Rust code into SPIR-V.
+//!
+//! # How it works
+//!
+//! In order to build shader crates, we must invoke cargo/rustc with a special backend
+//! that performs the SPIR-V code generation. This backend is a dynamic library known
+//! by its project name `rustc_codegen_spirv`. The name of the artifact itself is
+//! OS-dependent.
+//!
+//! There are a lot of special flags to wrangle and so we use a command line program
+//! that wraps `cargo` to perform the building of shader crates. This cli program is
+//! called `spirv-builder-cli`, which itself is a cli wrapper around the `spirv-builder`
+//! library.
+//!
+//! ## Where the binaries are
+//!
+//! `cargo-gpu` maintains different versions `spirv-builder-cli` and `rustc_codegen_spirv`
+//! in a cache dir. The location is OS-dependent, for example on macOS it's in
+//! `~/Library/Caches/rust-gpu`. Specific versions live inside the cache dir, prefixed
+//! by their `spirv-builder` cargo dependency and rust toolchain pair.
+//!
+//! Building a specific "binary pair" of `spirv-builder-cli` and `rustc_codegen_spirv`
+//! happens when there is no existing pair that matches the computed prefix, or if
+//! a force rebuild is specified on the command line.
+//!
+//! ## Building the "binary pairs"
+//!
+//! The source of `spirv-builder-cli` lives alongside this source file, in crate that
+//! is not included in the workspace. That same source code is also included statically
+//! in **this** source file.
+//!
+//! When `spirv-builder-cli` needs to be built, a new directory is created in the cache
+//! where the source to `spirv-builder-cli` is copied into, containing the specific cargo
+//! dependency for `spirv-builder` and the matching rust toolchain channel.
+//!
+//! Then `cargo` is invoked in that cache directory to build the pair of artifacts, which
+//! are then put into the top level of that cache directory.
+//!
+//! This pair of artifacts is then used to build shader crates.
+//!
+//! ## Building shader crates
+//!
+//! `cargo-gpu` takes a path to a shader crate to build, as well as a path to a directory
+//! to put the compiled `spv` source files. It also takes a path to an output mainifest
+//! file where all shader entry points will be mapped to their `spv` source files. This
+//! manifest file can be used by build scripts (`build.rs` files) to generate linkage or
+//! conduct other post-processing, like converting the `spv` files into `wgsl` files,
+//! for example.
 use std::io::Write;
 
 use cargo_gpu::{spirv_builder_cli::ShaderModule, Linkage};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 const SPIRV_BUILDER_CLI_CARGO_TOML: &str = include_str!("../../spirv-builder-cli/Cargo.toml");
 const SPIRV_BUILDER_CLI_MAIN: &str = include_str!("../../spirv-builder-cli/src/main.rs");
@@ -56,20 +103,6 @@ impl SpirvCli {
         checkout_dir
     }
 
-    fn write_source_files(&self) {
-        let checkout = self.cached_checkout_path();
-        std::fs::create_dir_all(checkout.join("src")).unwrap();
-        for (filename, contents) in SPIRV_BUILDER_FILES.iter() {
-            log::debug!("writing {filename}");
-            let path = checkout.join(filename);
-            let mut file = std::fs::File::create(&path).unwrap();
-            let replaced_contents = contents
-                .replace("${SPIRV_BUILDER_SOURCE}", &self.dep)
-                .replace("${CHANNEL}", &self.channel);
-            file.write_all(replaced_contents.as_bytes()).unwrap();
-        }
-    }
-
     fn ensure_version_channel_compatibility(&self) {
         for (version, channel) in SPIRV_STD_TOOLCHAIN_PAIRS.iter() {
             if version.starts_with(&self.dep) && channel != &self.channel {
@@ -77,9 +110,67 @@ impl SpirvCli {
             }
         }
     }
+}
 
-    fn build(&self, force: bool) -> (std::path::PathBuf, std::path::PathBuf) {
-        let checkout = self.cached_checkout_path();
+#[derive(Parser)]
+struct Install {
+    /// spirv-builder dependency, written just like in a Cargo.toml file.
+    #[clap(
+        long,
+        default_value = r#"{ git = "https://github.com/Rust-GPU/rust-gpu.git" }"#
+    )]
+    spirv_builder: String,
+
+    /// Rust toolchain channel to use to build `spirv-builder`.
+    ///
+    /// This must match the `spirv_builder` argument.
+    #[clap(long, default_value = "nightly-2024-04-24")]
+    rust_toolchain: String,
+
+    /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
+    #[clap(long)]
+    force_spirv_cli_rebuild: bool,
+}
+
+impl Install {
+    fn spirv_cli(&self) -> SpirvCli {
+        SpirvCli {
+            dep: self.spirv_builder.clone(),
+            channel: self.rust_toolchain.clone(),
+        }
+    }
+
+    fn write_source_files(&self) {
+        let cli = self.spirv_cli();
+        let checkout = cli.cached_checkout_path();
+        std::fs::create_dir_all(checkout.join("src")).unwrap();
+        for (filename, contents) in SPIRV_BUILDER_FILES.iter() {
+            log::debug!("writing {filename}");
+            let path = checkout.join(filename);
+            let mut file = std::fs::File::create(&path).unwrap();
+            let replaced_contents = contents
+                .replace("${SPIRV_BUILDER_SOURCE}", &cli.dep)
+                .replace("${CHANNEL}", &cli.channel);
+            file.write_all(replaced_contents.as_bytes()).unwrap();
+        }
+    }
+
+    // Install the binary pair and return the paths, (dylib, cli).
+    fn run(&self) -> (std::path::PathBuf, std::path::PathBuf) {
+        // Ensure the cache dir exists
+        let cache_dir = cache_dir();
+        std::fs::create_dir_all(&cache_dir).unwrap_or_else(|e| {
+            log::error!(
+                "could not create cache directory '{}': {e}",
+                cache_dir.display()
+            );
+            panic!("could not create cache dir");
+        });
+
+        let spirv_version = self.spirv_cli();
+        spirv_version.ensure_version_channel_compatibility();
+
+        let checkout = spirv_version.cached_checkout_path();
         let release = checkout.join("target").join("release");
 
         let dylib_filename = format!(
@@ -97,7 +188,7 @@ impl SpirvCli {
             );
         }
 
-        if dest_dylib_path.is_file() && dest_cli_path.is_file() && !force {
+        if dest_dylib_path.is_file() && dest_cli_path.is_file() && !self.force_spirv_cli_rebuild {
             log::info!("...and so we are aborting the install step.");
         } else {
             log::debug!(
@@ -109,7 +200,7 @@ impl SpirvCli {
             log::debug!("building artifacts");
             let output = std::process::Command::new("cargo")
                 .current_dir(&checkout)
-                .arg(format!("+{}", self.channel))
+                .arg(format!("+{}", spirv_version.channel))
                 .args(["build", "--release"])
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
@@ -139,24 +230,9 @@ impl SpirvCli {
 }
 
 #[derive(Parser)]
-#[clap(author, version, about)]
-struct Cli {
-    /// spirv-builder dependency, written just like in a Cargo.toml file.
-    #[clap(
-        long,
-        default_value = r#"{ git = "https://github.com/Rust-GPU/rust-gpu.git" }"#
-    )]
-    spirv_builder: String,
-
-    /// Rust toolchain channel to use to build `spirv-builder`.
-    ///
-    /// This must match the `spirv_builder` argument.
-    #[clap(long, default_value = "nightly-2024-04-24")]
-    rust_toolchain: String,
-
-    /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
-    #[clap(long)]
-    force_spirv_cli_rebuild: bool,
+struct Build {
+    #[clap(flatten)]
+    install: Install,
 
     /// Directory containing the shader crate to compile.
     #[clap(long, default_value = "./")]
@@ -188,6 +264,118 @@ struct Cli {
     dry_run: bool,
 }
 
+impl Build {
+    fn run(&self) {
+        let (dylib_path, spirv_builder_cli_path) = self.install.run();
+
+        // Ensure the shader output dir exists
+        std::fs::create_dir_all(&self.output_dir).unwrap();
+
+        assert!(
+            self.shader_crate.exists(),
+            "shader crate '{}' does not exist. (Current dir is '{}')",
+            self.shader_crate.display(),
+            std::env::current_dir().unwrap().display()
+        );
+
+        let spirv_builder_args = cargo_gpu::spirv_builder_cli::Args {
+            dylib_path,
+            shader_crate: self.shader_crate.clone(),
+            shader_target: self.shader_target.clone(),
+            no_default_features: self.no_default_features,
+            features: self.features.clone(),
+            output_dir: self.output_dir.clone(),
+            dry_run: self.dry_run,
+        };
+
+        // UNWRAP: safe because we know this always serializes
+        let arg = serde_json::to_string_pretty(&spirv_builder_args).unwrap();
+        log::info!("using spirv-builder-cli arg: {arg}");
+
+        // Call spirv-builder-cli to compile the shaders.
+        let output = std::process::Command::new(&spirv_builder_cli_path)
+            .arg(arg)
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "build failed");
+
+        let spirv_manifest = self.output_dir.join("spirv-manifest.json");
+        if spirv_manifest.is_file() {
+            log::debug!(
+                "successfully built shaders, raw manifest is at '{}'",
+                spirv_manifest.display()
+            );
+        } else {
+            log::error!("missing raw manifest '{}'", spirv_manifest.display());
+            panic!("missing raw manifest");
+        }
+
+        let shaders: Vec<ShaderModule> =
+            serde_json::from_reader(std::fs::File::open(&spirv_manifest).unwrap()).unwrap();
+
+        let mut linkage: Vec<_> = shaders
+            .into_iter()
+            .map(
+                |ShaderModule {
+                     entry,
+                     path: filepath,
+                 }| {
+                    let path = self.output_dir.join(filepath.file_name().unwrap());
+                    if !self.dry_run {
+                        std::fs::copy(filepath, &path).unwrap();
+                    }
+                    Linkage::new(entry, path)
+                },
+            )
+            .collect();
+
+        // Write the shader manifest json file
+        if !self.dry_run {
+            if let Some(manifest_path) = &self.shader_manifest {
+                // Sort the contents so the output is deterministic
+                linkage.sort();
+                // UNWRAP: safe because we know this always serializes
+                let json = serde_json::to_string_pretty(&linkage).unwrap();
+                let mut file = std::fs::File::create(manifest_path).unwrap_or_else(|e| {
+                    log::error!(
+                        "could not create shader manifest file '{}': {e}",
+                        manifest_path.display(),
+                    );
+                    panic!("{e}")
+                });
+                file.write_all(json.as_bytes()).unwrap_or_else(|e| {
+                    log::error!(
+                        "could not write shader manifest file '{}': {e}",
+                        manifest_path.display(),
+                    );
+                    panic!("{e}")
+                });
+
+                log::info!("wrote manifest to '{}'", manifest_path.display());
+            }
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Install rust-gpu compiler artifacts.
+    Install(Install),
+
+    /// Compile a shader crate to SPIR-V.
+    Build(Build),
+}
+
+#[derive(Parser)]
+#[clap(author, version, about, subcommand_required = true)]
+struct Cli {
+    /// The command to run.
+    #[clap(subcommand)]
+    command: Command,
+}
+
 fn cache_dir() -> std::path::PathBuf {
     directories::BaseDirs::new()
         .unwrap_or_else(|| {
@@ -198,132 +386,19 @@ fn cache_dir() -> std::path::PathBuf {
         .join("rust-gpu")
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     env_logger::builder().init();
 
-    let Cli {
-        spirv_builder,
-        rust_toolchain,
-        force_spirv_cli_rebuild,
-        shader_crate,
-        shader_target,
-        no_default_features,
-        features,
-        output_dir,
-        shader_manifest: output_manifest,
-        dry_run,
-    } = Cli::parse_from(std::env::args().filter(|p| {
+    let cli = Cli::parse_from(std::env::args().filter(|p| {
         // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
         // as the first parameter, which we want to ignore.
         p != "gpu"
     }));
 
-    // Ensure the cache dir exists
-    let cache_dir = cache_dir();
-    std::fs::create_dir_all(&cache_dir).unwrap_or_else(|e| {
-        log::error!(
-            "could not create cache directory '{}': {e}",
-            cache_dir.display()
-        );
-        panic!("could not create cache dir");
-    });
-
-    // Check out the spirv-builder-cli source into the cache dir with a prefix and build it.
-    let spirv_version = SpirvCli {
-        dep: spirv_builder,
-        channel: rust_toolchain,
-    };
-    spirv_version.ensure_version_channel_compatibility();
-    let (dylib_path, spirv_builder_cli_path) = spirv_version.build(force_spirv_cli_rebuild);
-
-    // Ensure the shader output dir exists
-    std::fs::create_dir_all(&output_dir).unwrap();
-
-    assert!(
-        shader_crate.exists(),
-        "shader crate '{}' does not exist. (Current dir is '{}')",
-        shader_crate.display(),
-        std::env::current_dir().unwrap().display()
-    );
-
-    let spirv_builder_args = cargo_gpu::spirv_builder_cli::Args {
-        dylib_path,
-        shader_crate,
-        shader_target,
-        no_default_features,
-        features,
-        output_dir: output_dir.clone(),
-        dry_run,
-    };
-
-    // UNWRAP: safe because we know this always serializes
-    let arg = serde_json::to_string_pretty(&spirv_builder_args).unwrap();
-    log::info!("using spirv-builder-cli arg: {arg}");
-
-    // Call spirv-builder-cli to compile the shaders.
-    let output = std::process::Command::new(&spirv_builder_cli_path)
-        .arg(arg)
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "build failed");
-
-    let spirv_manifest = output_dir.join("spirv-manifest.json");
-    if spirv_manifest.is_file() {
-        log::debug!(
-            "successfully built shaders, raw manifest is at '{}'",
-            spirv_manifest.display()
-        );
-    } else {
-        log::error!("missing raw manifest '{}'", spirv_manifest.display());
-        panic!("missing raw manifest");
-    }
-
-    let shaders: Vec<ShaderModule> =
-        serde_json::from_reader(std::fs::File::open(&spirv_manifest).unwrap()).unwrap();
-
-    let mut linkage: Vec<_> = shaders
-        .into_iter()
-        .map(
-            |ShaderModule {
-                 entry,
-                 path: filepath,
-             }| {
-                let path = output_dir.join(filepath.file_name().unwrap());
-                if !dry_run {
-                    std::fs::copy(filepath, &path).unwrap();
-                }
-                Linkage::new(entry, path)
-            },
-        )
-        .collect();
-
-    // Write the shader manifest json file
-    if !dry_run {
-        if let Some(manifest_path) = output_manifest {
-            // Sort the contents so the output is deterministic
-            linkage.sort();
-            // UNWRAP: safe because we know this always serializes
-            let json = serde_json::to_string_pretty(&linkage).unwrap();
-            let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|e| {
-                log::error!(
-                    "could not create shader manifest file '{}': {e}",
-                    manifest_path.display(),
-                );
-                panic!("{e}")
-            });
-            file.write_all(json.as_bytes()).unwrap_or_else(|e| {
-                log::error!(
-                    "could not write shader manifest file '{}': {e}",
-                    manifest_path.display(),
-                );
-                panic!("{e}")
-            });
-
-            log::info!("wrote manifest to '{}'", manifest_path.display());
+    match cli.command {
+        Command::Install(install) => {
+            let _ = install.run();
         }
+        Command::Build(build) => build.run(),
     }
-
-    Ok(())
 }
