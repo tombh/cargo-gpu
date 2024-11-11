@@ -110,6 +110,80 @@ impl Spirv {
             }
         }
     }
+
+    /// Use `rustup` to install the toolchain and components, if not already installed.
+    ///
+    /// Pretty much runs:
+    ///
+    /// * rustup toolchain add nightly-2024-04-24
+    /// * rustup component add --toolchain nightly-2024-04-24 rust-src rustc-dev llvm-tools
+    fn ensure_toolchain_and_components_exist(&self) {
+        // Check for the required toolchain
+        let output = std::process::Command::new("rustup")
+            .args(["toolchain", "list"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "could not list installed toolchains"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout
+            .split_whitespace()
+            .any(|toolchain| toolchain.starts_with(&self.channel))
+        {
+            log::debug!("toolchain {} is already installed", self.channel);
+        } else {
+            let output = std::process::Command::new("rustup")
+                .args(["toolchain", "add"])
+                .arg(&self.channel)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "could not install required toolchain"
+            );
+        }
+
+        // Check for the required components
+        let output = std::process::Command::new("rustup")
+            .args(["component", "list", "--toolchain"])
+            .arg(&self.channel)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "could not list installed components"
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let required_components = ["rust-src", "rustc-dev", "llvm-tools"];
+        let installed_components = stdout.lines().collect::<Vec<_>>();
+        let all_components_installed = required_components.iter().all(|component| {
+            installed_components.iter().any(|installed_component| {
+                let is_component = installed_component.starts_with(component);
+                let is_installed = installed_component.ends_with("(installed)");
+                is_component && is_installed
+            })
+        });
+        if all_components_installed {
+            log::debug!("all required components are installed");
+        } else {
+            let output = std::process::Command::new("rustup")
+                .args(["component", "add", "--toolchain"])
+                .arg(&self.channel)
+                .args(["rust-src", "rustc-dev", "llvm-tools"])
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "could not install required components"
+            );
+        }
+    }
 }
 
 #[derive(Parser)]
@@ -169,6 +243,7 @@ impl Install {
 
         let spirv_version = self.spirv_cli();
         spirv_version.ensure_version_channel_compatibility();
+        spirv_version.ensure_toolchain_and_components_exist();
 
         let checkout = spirv_version.cached_checkout_path();
         let release = checkout.join("target").join("release");
