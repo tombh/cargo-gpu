@@ -249,6 +249,12 @@ impl Spirv {
     }
 }
 
+fn target_spec_dir() -> std::path::PathBuf {
+    let dir = cache_dir().join("target-specs");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 #[derive(Parser)]
 struct Install {
     /// spirv-builder dependency, written just like in a Cargo.toml file.
@@ -293,12 +299,12 @@ impl Install {
     }
 
     fn write_target_spec_files(&self) {
-        let cli = self.spirv_cli();
-        let checkout = cli.cached_checkout_path();
         for (filename, contents) in TARGET_SPECS.iter() {
-            let path = checkout.join(filename);
-            let mut file = std::fs::File::create(&path).unwrap();
-            file.write_all(contents.as_bytes()).unwrap();
+            let path = target_spec_dir().join(filename);
+            if !path.is_file() || self.force_spirv_cli_rebuild {
+                let mut file = std::fs::File::create(&path).unwrap();
+                file.write_all(contents.as_bytes()).unwrap();
+            }
         }
     }
 
@@ -431,11 +437,7 @@ impl Build {
             dylib_path,
             shader_crate: self.shader_crate.clone(),
             shader_target: self.shader_target.clone(),
-            path_to_target_spec: self
-                .install
-                .spirv_cli()
-                .cached_checkout_path()
-                .join(format!("{}.json", self.shader_target)),
+            path_to_target_spec: target_spec_dir().join(format!("{}.json", self.shader_target)),
             no_default_features: self.no_default_features,
             features: self.features.clone(),
             output_dir: self.output_dir.clone(),
