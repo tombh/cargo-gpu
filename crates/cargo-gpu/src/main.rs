@@ -517,11 +517,30 @@ impl Build {
 
 #[derive(Parser)]
 struct Toml {
-    /// Path to the toml file.
+    /// Path to a workspace or package Cargo.toml file.
     ///
-    /// Must include a [package.metadata.rust-gpu.build] section where
+    /// Must include a [[workspace | package].metadata.rust-gpu.build] section where
     /// arguments to `cargo gpu build` are listed.
-    #[clap(default_value = "./Cargo.toml")]
+    ///
+    /// Path arguments like `output-dir` and `shader-manifest` must be relative to
+    /// the location of the Cargo.toml file.
+    ///
+    /// Example:
+    ///
+    /// ```toml
+    ///     [package.metadata.rust-gpu.build.spirv-builder]
+    ///     git = "https://github.com/Rust-GPU/rust-gpu.git"  
+    ///     rev = "0da80f8"
+    ///
+    ///     [package.metadata.rust-gpu.build]
+    ///     output-dir = "shaders"
+    ///     shader-manifest = "shaders/manifest.json"
+    /// ```
+    ///
+    /// Calling `cargo gpu toml {path/to/Cargo.toml}` with a Cargo.toml that
+    /// contains the example above would compile the crate and place the compiled
+    /// `.spv` files and manifest in a directory "shaders".
+    #[clap(default_value = "./Cargo.toml", verbatim_doc_comment)]
     path: std::path::PathBuf,
 }
 
@@ -605,6 +624,14 @@ impl Toml {
                 format!("--{k}={value}")
             })
             .collect::<Vec<_>>();
+
+        let working_directory = path.parent().unwrap();
+        log::info!(
+            "Issuing cargo commands from the working directory '{}'",
+            working_directory.display()
+        );
+        std::env::set_current_dir(working_directory).unwrap();
+
         log::debug!("build parameters: {parameters:#?}");
         let build = Build::parse_from(parameters);
         build.run();
