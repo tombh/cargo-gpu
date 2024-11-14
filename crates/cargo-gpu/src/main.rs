@@ -515,6 +515,102 @@ impl Build {
     }
 }
 
+#[derive(Parser)]
+struct Toml {
+    /// Path to the toml file.
+    ///
+    /// Must include a [package.metadata.rust-gpu.build] section where
+    /// arguments to `cargo gpu build` are listed.
+    #[clap(default_value = "./Cargo.toml")]
+    path: std::path::PathBuf,
+}
+
+impl Toml {
+    fn run(&self) {
+        // Find the path to the toml file to use
+        let path = if self.path.is_file() && self.path.ends_with(".toml") {
+            self.path.clone()
+        } else {
+            let path = self.path.join("Cargo.toml");
+            if path.is_file() {
+                path
+            } else {
+                log::error!("toml file '{}' is not a file", self.path.display());
+                panic!("toml file '{}' is not a file", self.path.display());
+            }
+        };
+
+        log::info!("using toml file '{}'", path.display());
+
+        // Determine if this is a workspace's Cargo.toml or a crate's Cargo.toml
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let toml: toml::Table = toml::from_str(&contents).unwrap();
+
+        fn get_metadata_rustgpu_table<'a>(
+            toml: &'a toml::Table,
+            toml_type: &'static str,
+        ) -> Option<&'a toml::Table> {
+            let workspace = toml.get(toml_type)?.as_table()?;
+            let metadata = workspace.get("metadata")?.as_table()?;
+            metadata.get("rust-gpu")?.as_table()
+        }
+
+        let (toml_type, table) = if toml.contains_key("workspace") {
+            let table = get_metadata_rustgpu_table(&toml, "workspace")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "toml file '{}' is missing a [workspace.metadata.rust-gpu] table",
+                        path.display()
+                    );
+                })
+                .clone();
+            ("workspace", table)
+        } else if toml.contains_key("package") {
+            let mut table = get_metadata_rustgpu_table(&toml, "package")
+                .unwrap_or_else(|| {
+                    panic!(
+                        "toml file '{}' is missing a [package.metadata.rust-gpu] table",
+                        path.display()
+                    );
+                })
+                .clone();
+            // Ensure the package name is included as the shader-crate parameter
+            if !table.contains_key("shader-crate") {
+                table.insert(
+                    "shader-crate".to_string(),
+                    format!("{}", path.parent().unwrap().display()).into(),
+                );
+            }
+            ("package", table)
+        } else {
+            panic!("toml file '{}' must describe a workspace containing [workspace.metadata.rust-gpu.build] or a describe a crate with [package.metadata.rust-gpu.build]", path.display());
+        };
+        log::info!(
+            "building with [{toml_type}.metadata.rust-gpu.build] section of the toml file at '{}'",
+            path.display()
+        );
+
+        let parameters = table
+            .get("build")
+            .unwrap_or_else(|| panic!("toml is missing the 'build' table"))
+            .as_table()
+            .unwrap_or_else(|| {
+                panic!("toml file's '{toml_type}.metadata.rust-gpu.build' property is not a table")
+            })
+            .into_iter()
+            .map(|(k, v)| {
+                let mut value = String::new();
+                let ser = toml::ser::ValueSerializer::new(&mut value);
+                serde::Serialize::serialize(v, ser).unwrap();
+                format!("--{k}={value}")
+            })
+            .collect::<Vec<_>>();
+        log::debug!("build parameters: {parameters:#?}");
+        let build = Build::parse_from(parameters);
+        build.run();
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Install rust-gpu compiler artifacts.
@@ -522,6 +618,10 @@ enum Command {
 
     /// Compile a shader crate to SPIR-V.
     Build(Build),
+
+    /// Compile a shader crate according to the `cargo gpu build` parameters
+    /// found in the given toml file.
+    Toml(Toml),
 }
 
 #[derive(Parser)]
@@ -556,5 +656,6 @@ fn main() {
             let _ = install.run();
         }
         Command::Build(build) => build.run(),
+        Command::Toml(toml) => toml.run(),
     }
 }
