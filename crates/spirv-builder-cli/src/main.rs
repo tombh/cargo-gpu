@@ -24,6 +24,7 @@ fn main() {
         dylib_path,
         shader_crate,
         shader_target,
+        path_to_target_spec,
         no_default_features,
         features,
         output_dir,
@@ -36,6 +37,7 @@ fn main() {
     } = {
         let mut builder = SpirvBuilder::new(shader_crate, &shader_target)
             .rustc_codegen_spirv_location(dylib_path)
+            .target_spec(path_to_target_spec)
             .print_metadata(MetadataPrintout::None)
             .multimodule(true);
 

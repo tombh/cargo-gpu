@@ -65,6 +65,69 @@ const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
 
 const SPIRV_STD_TOOLCHAIN_PAIRS: &[(&str, &str)] = &[("0.10", "nightly-2024-04-24")];
 
+const TARGET_SPECS: &[(&str, &str)] = &[
+    (
+        "spirv-unknown-opengl4.0.json",
+        include_str!("../target-specs/spirv-unknown-opengl4.0.json"),
+    ),
+    (
+        "spirv-unknown-opengl4.1.json",
+        include_str!("../target-specs/spirv-unknown-opengl4.1.json"),
+    ),
+    (
+        "spirv-unknown-opengl4.2.json",
+        include_str!("../target-specs/spirv-unknown-opengl4.2.json"),
+    ),
+    (
+        "spirv-unknown-opengl4.3.json",
+        include_str!("../target-specs/spirv-unknown-opengl4.3.json"),
+    ),
+    (
+        "spirv-unknown-opengl4.5.json",
+        include_str!("../target-specs/spirv-unknown-opengl4.5.json"),
+    ),
+    (
+        "spirv-unknown-spv1.0.json",
+        include_str!("../target-specs/spirv-unknown-spv1.0.json"),
+    ),
+    (
+        "spirv-unknown-spv1.1.json",
+        include_str!("../target-specs/spirv-unknown-spv1.1.json"),
+    ),
+    (
+        "spirv-unknown-spv1.2.json",
+        include_str!("../target-specs/spirv-unknown-spv1.2.json"),
+    ),
+    (
+        "spirv-unknown-spv1.3.json",
+        include_str!("../target-specs/spirv-unknown-spv1.3.json"),
+    ),
+    (
+        "spirv-unknown-spv1.4.json",
+        include_str!("../target-specs/spirv-unknown-spv1.4.json"),
+    ),
+    (
+        "spirv-unknown-spv1.5.json",
+        include_str!("../target-specs/spirv-unknown-spv1.5.json"),
+    ),
+    (
+        "spirv-unknown-vulkan1.0.json",
+        include_str!("../target-specs/spirv-unknown-vulkan1.0.json"),
+    ),
+    (
+        "spirv-unknown-vulkan1.1.json",
+        include_str!("../target-specs/spirv-unknown-vulkan1.1.json"),
+    ),
+    (
+        "spirv-unknown-vulkan1.1spv1.4.json",
+        include_str!("../target-specs/spirv-unknown-vulkan1.1spv1.4.json"),
+    ),
+    (
+        "spirv-unknown-vulkan1.2.json",
+        include_str!("../target-specs/spirv-unknown-vulkan1.2.json"),
+    ),
+];
+
 /// Cargo dependency for `spirv-builder` and the rust toolchain channel.
 #[derive(Debug, Clone)]
 struct Spirv {
@@ -186,6 +249,12 @@ impl Spirv {
     }
 }
 
+fn target_spec_dir() -> std::path::PathBuf {
+    let dir = cache_dir().join("target-specs");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 #[derive(Parser)]
 struct Install {
     /// spirv-builder dependency, written just like in a Cargo.toml file.
@@ -226,6 +295,16 @@ impl Install {
                 .replace("${SPIRV_BUILDER_SOURCE}", &cli.dep)
                 .replace("${CHANNEL}", &cli.channel);
             file.write_all(replaced_contents.as_bytes()).unwrap();
+        }
+    }
+
+    fn write_target_spec_files(&self) {
+        for (filename, contents) in TARGET_SPECS.iter() {
+            let path = target_spec_dir().join(filename);
+            if !path.is_file() || self.force_spirv_cli_rebuild {
+                let mut file = std::fs::File::create(&path).unwrap();
+                file.write_all(contents.as_bytes()).unwrap();
+            }
         }
     }
 
@@ -271,6 +350,7 @@ impl Install {
                 checkout.display()
             );
             self.write_source_files();
+            self.write_target_spec_files();
 
             log::debug!("building artifacts");
             let output = std::process::Command::new("cargo")
@@ -357,6 +437,7 @@ impl Build {
             dylib_path,
             shader_crate: self.shader_crate.clone(),
             shader_target: self.shader_target.clone(),
+            path_to_target_spec: target_spec_dir().join(format!("{}.json", self.shader_target)),
             no_default_features: self.no_default_features,
             features: self.features.clone(),
             output_dir: self.output_dir.clone(),

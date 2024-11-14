@@ -43,6 +43,9 @@ pub mod spirv_builder_cli {
         /// Shader target.
         pub shader_target: String,
 
+        /// Path to target spec file.
+        pub path_to_target_spec: std::path::PathBuf,
+
         /// Set cargo default-features.
         pub no_default_features: bool,
 
