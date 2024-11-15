@@ -54,9 +54,6 @@ pub mod spirv_builder_cli {
 
         /// Path to the output directory for the compiled shaders.
         pub output_dir: std::path::PathBuf,
-
-        /// Dry run or not
-        pub dry_run: bool,
     }
 
     /// A built shader entry-point, used in `spirv-builder-cli` to generate

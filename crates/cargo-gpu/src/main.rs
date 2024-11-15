@@ -408,10 +408,6 @@ struct Build {
     /// Path to the output directory for the compiled shaders.
     #[clap(long, short, default_value = "./")]
     output_dir: std::path::PathBuf,
-
-    /// If set the shaders will be compiled but not put into place.
-    #[clap(long, short)]
-    dry_run: bool,
 }
 
 impl Build {
@@ -440,7 +436,6 @@ impl Build {
             no_default_features: self.no_default_features,
             features: self.features.clone(),
             output_dir: self.output_dir.clone(),
-            dry_run: self.dry_run,
         };
 
         // UNWRAP: safe because we know this always serializes
@@ -478,37 +473,41 @@ impl Build {
                      path: filepath,
                  }| {
                     let path = self.output_dir.join(filepath.file_name().unwrap());
-                    if !self.dry_run {
-                        std::fs::copy(filepath, &path).unwrap();
-                    }
+                    std::fs::copy(filepath, &path).unwrap();
                     Linkage::new(entry, path)
                 },
             )
             .collect();
 
         // Write the shader manifest json file
-        if !self.dry_run {
-            let manifest_path = self.output_dir.join("manifest.json");
-            // Sort the contents so the output is deterministic
-            linkage.sort();
-            // UNWRAP: safe because we know this always serializes
-            let json = serde_json::to_string_pretty(&linkage).unwrap();
-            let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|e| {
-                log::error!(
-                    "could not create shader manifest file '{}': {e}",
-                    manifest_path.display(),
-                );
-                panic!("{e}")
-            });
-            file.write_all(json.as_bytes()).unwrap_or_else(|e| {
-                log::error!(
-                    "could not write shader manifest file '{}': {e}",
-                    manifest_path.display(),
-                );
-                panic!("{e}")
-            });
+        let manifest_path = self.output_dir.join("manifest.json");
+        // Sort the contents so the output is deterministic
+        linkage.sort();
+        // UNWRAP: safe because we know this always serializes
+        let json = serde_json::to_string_pretty(&linkage).unwrap();
+        let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|e| {
+            log::error!(
+                "could not create shader manifest file '{}': {e}",
+                manifest_path.display(),
+            );
+            panic!("{e}")
+        });
+        file.write_all(json.as_bytes()).unwrap_or_else(|e| {
+            log::error!(
+                "could not write shader manifest file '{}': {e}",
+                manifest_path.display(),
+            );
+            panic!("{e}")
+        });
 
-            log::info!("wrote manifest to '{}'", manifest_path.display());
+        log::info!("wrote manifest to '{}'", manifest_path.display());
+
+        if spirv_manifest.is_file() {
+            log::debug!(
+                "removing spirv-manifest.json file '{}'",
+                spirv_manifest.display()
+            );
+            std::fs::remove_file(spirv_manifest).unwrap();
         }
     }
 }

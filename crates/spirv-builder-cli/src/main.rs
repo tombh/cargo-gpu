@@ -34,7 +34,6 @@ fn main() {
         no_default_features,
         features,
         output_dir,
-        dry_run: _,
     } = args;
 
     let CompileResult {
