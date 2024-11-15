@@ -472,9 +472,12 @@ impl Build {
                      entry,
                      path: filepath,
                  }| {
+                    use relative_path::PathExt;
                     let path = self.output_dir.join(filepath.file_name().unwrap());
-                    std::fs::copy(filepath, &path).unwrap();
-                    Linkage::new(entry, path)
+                    std::fs::copy(&filepath, &path).unwrap();
+                    let path_relative_to_shader_crate =
+                        path.relative_to(&self.shader_crate).unwrap().to_path("");
+                    Linkage::new(entry, path_relative_to_shader_crate)
                 },
             )
             .collect();
