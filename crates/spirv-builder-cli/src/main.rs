@@ -20,6 +20,12 @@ fn main() {
     set_rustup_toolchain();
 
     let args = std::env::args().collect::<Vec<_>>();
+    log::debug!(
+        "running spirv-builder-cli from '{}'",
+        std::env::current_dir().unwrap().display()
+    );
+    let args = serde_json::from_str(&args[1]).unwrap();
+    log::debug!("compiling with args: {args:#?}");
     let Args {
         dylib_path,
         shader_crate,
@@ -29,7 +35,7 @@ fn main() {
         features,
         output_dir,
         dry_run: _,
-    } = serde_json::from_str(&args[1]).unwrap();
+    } = args;
 
     let CompileResult {
         entry_points,

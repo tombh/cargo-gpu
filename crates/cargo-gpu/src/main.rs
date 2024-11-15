@@ -255,7 +255,7 @@ fn target_spec_dir() -> std::path::PathBuf {
     dir
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 struct Install {
     /// spirv-builder dependency, written just like in a Cargo.toml file.
     #[clap(
@@ -384,7 +384,7 @@ impl Install {
     }
 }
 
-#[derive(Parser)]
+#[derive(Parser, Debug)]
 struct Build {
     #[clap(flatten)]
     install: Install,
@@ -396,11 +396,6 @@ struct Build {
     /// Shader target.
     #[clap(long, default_value = "spirv-unknown-vulkan1.2")]
     shader_target: String,
-
-    /// Path to the output JSON manifest file where the paths to .spv files
-    /// and the names of their entry points will be saved.
-    #[clap(long)]
-    shader_manifest: Option<std::path::PathBuf>,
 
     /// Set cargo default-features.
     #[clap(long)]
@@ -420,12 +415,16 @@ struct Build {
 }
 
 impl Build {
-    fn run(&self) {
+    fn run(&mut self) {
         let (dylib_path, spirv_builder_cli_path) = self.install.run();
 
         // Ensure the shader output dir exists
+        log::debug!("ensuring output-dir '{}' exists", self.output_dir.display());
         std::fs::create_dir_all(&self.output_dir).unwrap();
+        self.output_dir = self.output_dir.canonicalize().unwrap();
 
+        // Ensure the shader crate exists
+        self.shader_crate = self.shader_crate.canonicalize().unwrap();
         assert!(
             self.shader_crate.exists(),
             "shader crate '{}' does not exist. (Current dir is '{}')",
@@ -449,7 +448,7 @@ impl Build {
         log::info!("using spirv-builder-cli arg: {arg}");
 
         // Call spirv-builder-cli to compile the shaders.
-        let output = std::process::Command::new(&spirv_builder_cli_path)
+        let output = std::process::Command::new(spirv_builder_cli_path)
             .arg(arg)
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -489,28 +488,27 @@ impl Build {
 
         // Write the shader manifest json file
         if !self.dry_run {
-            if let Some(manifest_path) = &self.shader_manifest {
-                // Sort the contents so the output is deterministic
-                linkage.sort();
-                // UNWRAP: safe because we know this always serializes
-                let json = serde_json::to_string_pretty(&linkage).unwrap();
-                let mut file = std::fs::File::create(manifest_path).unwrap_or_else(|e| {
-                    log::error!(
-                        "could not create shader manifest file '{}': {e}",
-                        manifest_path.display(),
-                    );
-                    panic!("{e}")
-                });
-                file.write_all(json.as_bytes()).unwrap_or_else(|e| {
-                    log::error!(
-                        "could not write shader manifest file '{}': {e}",
-                        manifest_path.display(),
-                    );
-                    panic!("{e}")
-                });
+            let manifest_path = self.output_dir.join("manifest.json");
+            // Sort the contents so the output is deterministic
+            linkage.sort();
+            // UNWRAP: safe because we know this always serializes
+            let json = serde_json::to_string_pretty(&linkage).unwrap();
+            let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|e| {
+                log::error!(
+                    "could not create shader manifest file '{}': {e}",
+                    manifest_path.display(),
+                );
+                panic!("{e}")
+            });
+            file.write_all(json.as_bytes()).unwrap_or_else(|e| {
+                log::error!(
+                    "could not write shader manifest file '{}': {e}",
+                    manifest_path.display(),
+                );
+                panic!("{e}")
+            });
 
-                log::info!("wrote manifest to '{}'", manifest_path.display());
-            }
+            log::info!("wrote manifest to '{}'", manifest_path.display());
         }
     }
 }
@@ -608,8 +606,9 @@ impl Toml {
             "building with [{toml_type}.metadata.rust-gpu.build] section of the toml file at '{}'",
             path.display()
         );
+        log::debug!("table: {table:#?}");
 
-        let parameters = table
+        let mut parameters = table
             .get("build")
             .unwrap_or_else(|| panic!("toml is missing the 'build' table"))
             .as_table()
@@ -617,24 +616,37 @@ impl Toml {
                 panic!("toml file's '{toml_type}.metadata.rust-gpu.build' property is not a table")
             })
             .into_iter()
-            .map(|(k, v)| {
-                let mut value = String::new();
-                let ser = toml::ser::ValueSerializer::new(&mut value);
-                serde::Serialize::serialize(v, ser).unwrap();
-                format!("--{k}={value}")
+            .flat_map(|(k, v)| match v {
+                toml::Value::String(s) => [format!("--{k}"), s.clone()],
+                _ => {
+                    let mut value = String::new();
+                    let ser = toml::ser::ValueSerializer::new(&mut value);
+                    serde::Serialize::serialize(v, ser).unwrap();
+                    [format!("--{k}"), value]
+                }
             })
             .collect::<Vec<_>>();
+        parameters.insert(0, "cargo-gpu".to_string());
+        parameters.insert(1, "build".to_string());
 
         let working_directory = path.parent().unwrap();
         log::info!(
-            "Issuing cargo commands from the working directory '{}'",
+            "issuing cargo commands from the working directory '{}'",
             working_directory.display()
         );
         std::env::set_current_dir(working_directory).unwrap();
 
         log::debug!("build parameters: {parameters:#?}");
-        let build = Build::parse_from(parameters);
-        build.run();
+        if let Cli {
+            command: Command::Build(mut build),
+        } = Cli::parse_from(parameters)
+        {
+            log::debug!("build: {build:?}");
+            build.run();
+        } else {
+            log::error!("parameters found in [{toml_type}.metadata.rust-gpu.build] were not parameters to `cargo gpu build`");
+            panic!("could not determin build command");
+        }
     }
 }
 
@@ -672,17 +684,49 @@ fn cache_dir() -> std::path::PathBuf {
 fn main() {
     env_logger::builder().init();
 
-    let cli = Cli::parse_from(std::env::args().filter(|p| {
-        // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
-        // as the first parameter, which we want to ignore.
-        p != "gpu"
-    }));
+    let args = std::env::args()
+        .filter(|p| {
+            // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
+            // as the first parameter, which we want to ignore.
+            p != "gpu"
+        })
+        .collect::<Vec<_>>();
+    log::trace!("args: {args:?}");
+    let cli = Cli::parse_from(args);
 
     match cli.command {
         Command::Install(install) => {
             let _ = install.run();
         }
-        Command::Build(build) => build.run(),
+        Command::Build(mut build) => build.run(),
         Command::Toml(toml) => toml.run(),
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn builder_from_params() {
+        let shader_crate = std::path::PathBuf::from("../shader-crate-template");
+        let output_dir = std::path::PathBuf::from("../shader-crate-template/shaders");
+        let args = [
+            "target/debug/cargo-gpu",
+            "build",
+            "--shader-crate",
+            &format!("{}", shader_crate.display()),
+            "--output-dir",
+            &format!("{}", output_dir.display()),
+        ];
+        if let Cli {
+            command: Command::Build(build),
+        } = Cli::parse_from(args)
+        {
+            assert_eq!(shader_crate, build.shader_crate);
+            assert_eq!(output_dir, build.output_dir);
+        } else {
+            panic!("was not a build command");
+        }
     }
 }
