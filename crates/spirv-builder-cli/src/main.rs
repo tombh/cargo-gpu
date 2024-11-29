@@ -1,8 +1,15 @@
 //! This program builds rust-gpu shader crates and writes generated spv files
 //! into the main source repo.
+
+#[cfg(feature = "spirv-builder-pre-cli")]
+use spirv_builder_pre_cli as spirv_builder;
+
+#[cfg(feature = "spirv-builder-0_10")]
+use spirv_builder_0_10 as spirv_builder;
+
 use spirv_builder::{CompileResult, MetadataPrintout, ModuleResult, SpirvBuilder};
 
-use spirv_builder_cli::spirv_builder_cli::{Args, ShaderModule};
+use spirv_builder_cli::{Args, ShaderModule};
 
 const RUSTC_NIGHTLY_CHANNEL: &str = "${CHANNEL}";
 
@@ -12,6 +19,24 @@ fn set_rustup_toolchain() {
         RUSTC_NIGHTLY_CHANNEL.trim_matches('"')
     );
     std::env::set_var("RUSTUP_TOOLCHAIN", RUSTC_NIGHTLY_CHANNEL.trim_matches('"'));
+}
+
+/// Get the OS-dependent ENV variable name for the list of paths pointing to .so/.dll files
+const fn dylib_path_envvar() -> &'static str {
+    if cfg!(windows) {
+        "PATH"
+    } else if cfg!(target_os = "macos") {
+        "DYLD_FALLBACK_LIBRARY_PATH"
+    } else {
+        "LD_LIBRARY_PATH"
+    }
+}
+
+fn set_codegen_spirv_location(dylib_path: std::path::PathBuf) {
+    let env_var = dylib_path_envvar();
+    let path = dylib_path.parent().unwrap().display().to_string();
+    log::debug!("Setting OS-dependent DLL ENV path ({env_var}) to: {path}");
+    std::env::set_var(env_var, path);
 }
 
 fn main() {
@@ -41,18 +66,28 @@ fn main() {
         module,
     } = {
         let mut builder = SpirvBuilder::new(shader_crate, &shader_target)
-            .rustc_codegen_spirv_location(dylib_path)
-            .target_spec(path_to_target_spec)
             .print_metadata(MetadataPrintout::None)
             .multimodule(true);
 
-        if no_default_features {
-            log::info!("setting cargo --no-default-features");
-            builder = builder.shader_crate_default_features(false);
+        #[cfg(feature = "spirv-builder-pre-cli")]
+        {
+            set_codegen_spirv_location(dylib_path);
         }
-        if !features.is_empty() {
-            log::info!("setting --features {features:?}");
-            builder = builder.shader_crate_features(features);
+
+        #[cfg(feature = "spirv-builder-0_10")]
+        {
+            builder = builder
+                .rustc_codegen_spirv_location(dylib_path)
+                .target_spec(path_to_target_spec);
+
+            if no_default_features {
+                log::info!("setting cargo --no-default-features");
+                builder = builder.shader_crate_default_features(false);
+            }
+            if !features.is_empty() {
+                log::info!("setting --features {features:?}");
+                builder = builder.shader_crate_features(features);
+            }
         }
 
         builder.build().unwrap()

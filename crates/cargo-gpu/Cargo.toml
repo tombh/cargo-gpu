@@ -6,11 +6,9 @@ description = "Generates shader .spv files from rust-gpu shader crates"
 readme = "../../README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
- 
-[lib]
-name = "cargo_gpu"
 
 [dependencies]
+spirv-builder-cli = { path = "../spirv-builder-cli", default-features = false }
 clap.workspace = true
 directories.workspace = true
 env_logger.workspace = true
@@ -19,6 +17,7 @@ relative-path.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
+chrono.workspace = true
 
 # Enable incremental by default in release mode.
 [profile.release]
