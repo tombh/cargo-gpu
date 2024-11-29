@@ -641,6 +641,7 @@ impl Toml {
         log::debug!("build parameters: {parameters:#?}");
         if let Cli {
             command: Command::Build(mut build),
+            ..
         } = Cli::parse_from(parameters)
         {
             log::debug!("build: {build:?}");
@@ -663,6 +664,12 @@ enum Command {
     /// Compile a shader crate according to the `cargo gpu build` parameters
     /// found in the given toml file.
     Toml(Toml),
+
+    /// A hidden command that can be used to recursively print out all the subcommand help messages:
+    ///   `cargo gpu dump-usage`
+    /// Useful for updating the README.
+    #[clap(hide(true))]
+    DumpUsage,
 }
 
 #[derive(Parser)]
@@ -702,6 +709,40 @@ fn main() {
         }
         Command::Build(mut build) => build.run(),
         Command::Toml(toml) => toml.run(),
+        Command::DumpUsage => dump_full_usage_for_readme(),
+    }
+}
+
+fn dump_full_usage_for_readme() {
+    use clap::CommandFactory;
+    let mut command = Cli::command();
+
+    let mut buffer: Vec<u8> = Default::default();
+    command.build();
+
+    write_help(&mut buffer, &mut command, 0);
+    let buffer = String::from_utf8(buffer).unwrap();
+    println!("{}", buffer);
+}
+
+fn write_help(buffer: &mut impl std::io::Write, cmd: &mut clap::Command, depth: usize) {
+    if cmd.get_name() == "help" {
+        return;
+    }
+
+    let mut command = cmd.get_name().to_string();
+    let _ = writeln!(
+        buffer,
+        "\n* {}{}",
+        command.remove(0).to_uppercase(),
+        command
+    );
+    let _ = writeln!(buffer);
+    let _ = cmd.write_long_help(buffer);
+
+    for sub in cmd.get_subcommands_mut() {
+        let _ = writeln!(buffer);
+        write_help(buffer, sub, depth + 1);
     }
 }
 
@@ -723,6 +764,7 @@ mod test {
         ];
         if let Cli {
             command: Command::Build(build),
+            ..
         } = Cli::parse_from(args)
         {
             assert_eq!(shader_crate, build.shader_crate);
