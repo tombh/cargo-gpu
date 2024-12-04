@@ -51,12 +51,12 @@
 //! for example.
 use std::io::Write;
 
-use cargo_gpu::{spirv_builder_cli::ShaderModule, Linkage};
 use clap::{Parser, Subcommand};
+use spirv_builder_cli::{Linkage, ShaderModule};
 
 const SPIRV_BUILDER_CLI_CARGO_TOML: &str = include_str!("../../spirv-builder-cli/Cargo.toml");
 const SPIRV_BUILDER_CLI_MAIN: &str = include_str!("../../spirv-builder-cli/src/main.rs");
-const SPIRV_BUILDER_CLI_LIB: &str = include_str!("lib.rs");
+const SPIRV_BUILDER_CLI_LIB: &str = include_str!("../../spirv-builder-cli/src/lib.rs");
 const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
     ("Cargo.toml", SPIRV_BUILDER_CLI_CARGO_TOML),
     ("src/main.rs", SPIRV_BUILDER_CLI_MAIN),
@@ -352,11 +352,21 @@ impl Install {
             self.write_source_files();
             self.write_target_spec_files();
 
-            log::debug!("building artifacts");
-            let output = std::process::Command::new("cargo")
+            let mut command = std::process::Command::new("cargo");
+            command
                 .current_dir(&checkout)
                 .arg(format!("+{}", spirv_version.channel))
                 .args(["build", "--release"])
+                .args(["--no-default-features"]);
+
+            command.args([
+                "--features",
+                &Self::get_required_spirv_builder_version(spirv_version.channel),
+            ]);
+
+            log::debug!("building artifacts with `{:?}`", command);
+
+            let output = command
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
                 .output()
@@ -381,6 +391,28 @@ impl Install {
             }
         }
         (dest_dylib_path, dest_cli_path)
+    }
+
+    /// The `spirv-builder` crate from the main `rust-gpu` repo hasn't always been setup to
+    /// interact with `cargo-gpu`. Older versions don't have the same `SpirvBuilder` interface. So
+    /// here we choose the right Cargo feature to enable/disable code in `spirv-builder-cli`.
+    ///
+    /// TODO:
+    ///   * Download the actual `rust-gpu` repo as pinned in the shader's `Cargo.lock` and get the
+    ///     `spirv-builder` version from there.
+    ///   * Warn the user that certain `cargo-gpu` features aren't available when building with
+    ///     older versions of `spirv-builder`, eg setting the target spec.
+    fn get_required_spirv_builder_version(toolchain_channel: String) -> String {
+        let parse_date = chrono::NaiveDate::parse_from_str;
+        let datetime = parse_date(&toolchain_channel, "nightly-%Y-%m-%d").unwrap();
+        let pre_cli_date = parse_date("2024-04-24", "%Y-%m-%d").unwrap();
+
+        if datetime < pre_cli_date {
+            "spirv-builder-pre-cli"
+        } else {
+            "spirv-builder-0_10"
+        }
+        .into()
     }
 }
 
@@ -428,7 +460,7 @@ impl Build {
             std::env::current_dir().unwrap().display()
         );
 
-        let spirv_builder_args = cargo_gpu::spirv_builder_cli::Args {
+        let spirv_builder_args = spirv_builder_cli::Args {
             dylib_path,
             shader_crate: self.shader_crate.clone(),
             shader_target: self.shader_target.clone(),
