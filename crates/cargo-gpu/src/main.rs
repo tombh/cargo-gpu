@@ -394,7 +394,11 @@ impl Install {
                 panic!("spirv-builder-cli build failed");
             }
 
-            let cli_path = release.join("spirv-builder-cli");
+            let cli_path = if cfg!(target_os = "windows") {
+                release.join("spirv-builder-cli").with_extension("exe")
+            } else {
+                release.join("spirv-builder-cli")
+            };
             if cli_path.is_file() {
                 log::info!("successfully built {}", cli_path.display());
                 std::fs::rename(&cli_path, &dest_cli_path).unwrap();
