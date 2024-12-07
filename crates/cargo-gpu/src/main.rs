@@ -135,6 +135,15 @@ struct Spirv {
     channel: String,
 }
 
+impl Default for Spirv {
+    fn default() -> Self {
+        Self {
+            dep: Self::DEFAULT_DEP.into(),
+            channel: Self::DEFAULT_CHANNEL.into(),
+        }
+    }
+}
+
 impl core::fmt::Display for Spirv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         format!("{}+{}", self.dep, self.channel).fmt(f)
@@ -142,12 +151,18 @@ impl core::fmt::Display for Spirv {
 }
 
 impl Spirv {
+    const DEFAULT_DEP: &str = r#"{ git = "https://github.com/Rust-GPU/rust-gpu.git" }"#;
+    const DEFAULT_CHANNEL: &str = "nightly-2024-04-24";
+
     /// Returns a string suitable to use as a directory.
     ///
     /// Created from the spirv-builder source dep and the rustc channel.
     fn to_dirname(&self) -> String {
         self.to_string()
-            .replace([std::path::MAIN_SEPARATOR, '.', ':', '@', '='], "_")
+            .replace(
+                [std::path::MAIN_SEPARATOR, '\\', '/', '.', ':', '@', '='],
+                "_",
+            )
             .split(['{', '}', ' ', '\n', '"', '\''])
             .collect::<Vec<_>>()
             .concat()
@@ -258,16 +273,13 @@ fn target_spec_dir() -> std::path::PathBuf {
 #[derive(Parser, Debug)]
 struct Install {
     /// spirv-builder dependency, written just like in a Cargo.toml file.
-    #[clap(
-        long,
-        default_value = r#"{ git = "https://github.com/Rust-GPU/rust-gpu.git" }"#
-    )]
+    #[clap(long, default_value = Spirv::DEFAULT_DEP)]
     spirv_builder: String,
 
     /// Rust toolchain channel to use to build `spirv-builder`.
     ///
     /// This must match the `spirv_builder` argument.
-    #[clap(long, default_value = "nightly-2024-04-24")]
+    #[clap(long, default_value = Spirv::DEFAULT_CHANNEL)]
     rust_toolchain: String,
 
     /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
@@ -312,6 +324,7 @@ impl Install {
     fn run(&self) -> (std::path::PathBuf, std::path::PathBuf) {
         // Ensure the cache dir exists
         let cache_dir = cache_dir();
+        log::info!("cache directory is '{}'", cache_dir.display());
         std::fs::create_dir_all(&cache_dir).unwrap_or_else(|e| {
             log::error!(
                 "could not create cache directory '{}': {e}",
@@ -757,7 +770,7 @@ fn dump_full_usage_for_readme() {
     println!("{}", buffer);
 }
 
-fn write_help(buffer: &mut impl std::io::Write, cmd: &mut clap::Command, depth: usize) {
+fn write_help(buffer: &mut impl std::io::Write, cmd: &mut clap::Command, _depth: usize) {
     if cmd.get_name() == "help" {
         return;
     }
@@ -774,13 +787,29 @@ fn write_help(buffer: &mut impl std::io::Write, cmd: &mut clap::Command, depth: 
 
     for sub in cmd.get_subcommands_mut() {
         let _ = writeln!(buffer);
-        write_help(buffer, sub, depth + 1);
+        write_help(buffer, sub, _depth + 1);
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn cached_checkout_dir_sanity() {
+        let spirv = Spirv::default();
+        let dir = spirv.cached_checkout_path();
+        let name = dir
+            .file_name()
+            .unwrap()
+            .to_str()
+            .map(|s| s.to_string())
+            .unwrap();
+        assert_eq!(
+            "git_https___github_com_Rust-GPU_rust-gpu_git+nightly-2024-04-24",
+            &name
+        );
+    }
 
     #[test]
     fn builder_from_params() {

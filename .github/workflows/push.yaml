@@ -24,6 +24,7 @@ jobs:
       - uses: moonrepo/setup-rust@v1
       - run: rustup default stable 
       - run: rustup update
+      - run: cargo test
       - run: cargo install --path crates/cargo-gpu
       - run: cargo gpu install
       - run: cargo gpu build --shader-crate crates/shader-crate-template --output-dir test-shaders
