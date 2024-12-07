@@ -24,7 +24,7 @@ jobs:
       - uses: moonrepo/setup-rust@v1
       - run: rustup default stable 
       - run: rustup update
-      - run: cargo install --path . cargo-gpu
+      - run: cargo install --path crates/cargo-gpu
 
   clippy:
     runs-on: ubuntu-latest
