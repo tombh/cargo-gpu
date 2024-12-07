@@ -1,0 +1,41 @@
+name: push
+
+on: 
+  push:
+    branches: 
+      - main
+  pull_request:
+
+env:
+  # For setup-rust, see https://github.com/moonrepo/setup-rust/issues/22
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  install-and-build-shaders:
+    strategy:
+      matrix: 
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run: 
+        shell: bash
+    env: 
+      RUST_LOG: debug
+    steps:
+      - uses: actions/checkout@v2
+      - uses: moonrepo/setup-rust@v1
+      - run: rustup default stable 
+      - run: rustup update
+      - run: cargo test
+      - run: cargo install --path crates/cargo-gpu
+      - run: cargo gpu install
+      - run: cargo gpu build --shader-crate crates/shader-crate-template --output-dir test-shaders
+      - run: ls -lah test-shaders
+      - run: cat test-shaders/manifest.json
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: moonrepo/setup-rust@v1
+      - run: cargo clippy
