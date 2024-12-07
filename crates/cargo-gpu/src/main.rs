@@ -400,6 +400,11 @@ impl Install {
                 std::fs::rename(&cli_path, &dest_cli_path).unwrap();
             } else {
                 log::error!("could not find {}", cli_path.display());
+                log::debug!("contents of '{}':", release.display());
+                for entry in std::fs::read_dir(&release).unwrap() {
+                    let entry = entry.unwrap();
+                    log::debug!("{}", entry.file_name().to_string_lossy());
+                }
                 panic!("spirv-builder-cli build failed");
             }
         }
@@ -797,6 +802,7 @@ mod test {
 
     #[test]
     fn cached_checkout_dir_sanity() {
+        // Test that
         let spirv = Spirv::default();
         let dir = spirv.cached_checkout_path();
         let name = dir
