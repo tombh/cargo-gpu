@@ -26,10 +26,9 @@ jobs:
       - run: rustup update
       - run: cargo install --path crates/cargo-gpu
       - run: cargo gpu install
-      - run: git clone https://github.com/Rust-GPU/shader-crate-template.git
-      - run: cargo gpu build --shader-crate shader-crate-template --output-dir shaders
-      - run: ls -lah shaders
-      - run: cat shaders/manifest.json
+      - run: cargo gpu build --shader-crate crates/shader-crate-template --output-dir test-shaders
+      - run: ls -lah test-shaders
+      - run: cat test-shaders/manifest.json
 
   clippy:
     runs-on: ubuntu-latest
