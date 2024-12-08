@@ -707,6 +707,22 @@ impl Toml {
     }
 }
 
+#[derive(Parser)]
+struct Show {
+    #[clap(long)]
+    /// Displays the location of the cache directory
+    cache_directory: bool,
+}
+
+impl Show {
+    fn run(self) {
+        if self.cache_directory {
+            log::info!("cache_directory: ");
+            println!("{}", cache_dir().display());
+        }
+    }
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Install rust-gpu compiler artifacts.
@@ -718,6 +734,9 @@ enum Command {
     /// Compile a shader crate according to the `cargo gpu build` parameters
     /// found in the given toml file.
     Toml(Toml),
+
+    /// Show some useful values.
+    Show(Show),
 
     /// A hidden command that can be used to recursively print out all the subcommand help messages:
     ///   `cargo gpu dump-usage`
@@ -763,6 +782,7 @@ fn main() {
         }
         Command::Build(mut build) => build.run(),
         Command::Toml(toml) => toml.run(),
+        Command::Show(show) => show.run(),
         Command::DumpUsage => dump_full_usage_for_readme(),
     }
 }
