@@ -1,9 +1,12 @@
+//! Build a shader based on the data in the `[package.metadata.rust-gpu.build.spirv-builder]` section of
+//! a shader's `Cargo.toml`.
 use clap::Parser;
 
 use crate::{Cli, Command};
 
+/// `cargo gpu toml`
 #[derive(Parser)]
-pub(crate) struct Toml {
+pub struct Toml {
     /// Path to a workspace or package Cargo.toml file.
     ///
     /// Must include a [[workspace | package].metadata.rust-gpu.build] section where
@@ -32,6 +35,7 @@ pub(crate) struct Toml {
 }
 
 impl Toml {
+    /// Entrypoint
     pub fn run(&self) {
         // Find the path to the toml file to use
         let path = if self.path.is_file() && self.path.ends_with(".toml") {
@@ -52,17 +56,8 @@ impl Toml {
         let contents = std::fs::read_to_string(&path).unwrap();
         let toml: toml::Table = toml::from_str(&contents).unwrap();
 
-        fn get_metadata_rustgpu_table<'a>(
-            toml: &'a toml::Table,
-            toml_type: &'static str,
-        ) -> Option<&'a toml::Table> {
-            let workspace = toml.get(toml_type)?.as_table()?;
-            let metadata = workspace.get("metadata")?.as_table()?;
-            metadata.get("rust-gpu")?.as_table()
-        }
-
         let (toml_type, table) = if toml.contains_key("workspace") {
-            let table = get_metadata_rustgpu_table(&toml, "workspace")
+            let table = Self::get_metadata_rustgpu_table(&toml, "workspace")
                 .unwrap_or_else(|| {
                     panic!(
                         "toml file '{}' is missing a [workspace.metadata.rust-gpu] table",
@@ -72,7 +67,7 @@ impl Toml {
                 .clone();
             ("workspace", table)
         } else if toml.contains_key("package") {
-            let mut table = get_metadata_rustgpu_table(&toml, "package")
+            let mut table = Self::get_metadata_rustgpu_table(&toml, "package")
                 .unwrap_or_else(|| {
                     panic!(
                         "toml file '{}' is missing a [package.metadata.rust-gpu] table",
@@ -83,7 +78,7 @@ impl Toml {
             // Ensure the package name is included as the shader-crate parameter
             if !table.contains_key("shader-crate") {
                 table.insert(
-                    "shader-crate".to_string(),
+                    "shader-crate".to_owned(),
                     format!("{}", path.parent().unwrap().display()).into(),
                 );
             }
@@ -105,18 +100,19 @@ impl Toml {
                 panic!("toml file's '{toml_type}.metadata.rust-gpu.build' property is not a table")
             })
             .into_iter()
-            .flat_map(|(k, v)| match v {
-                toml::Value::String(s) => [format!("--{k}"), s.clone()],
-                _ => {
+            .flat_map(|(key, val)| {
+                if let toml::Value::String(string) = val {
+                    [format!("--{key}"), string.clone()]
+                } else {
                     let mut value = String::new();
                     let ser = toml::ser::ValueSerializer::new(&mut value);
-                    serde::Serialize::serialize(v, ser).unwrap();
-                    [format!("--{k}"), value]
+                    serde::Serialize::serialize(val, ser).unwrap();
+                    [format!("--{key}"), value]
                 }
             })
             .collect::<Vec<_>>();
-        parameters.insert(0, "cargo-gpu".to_string());
-        parameters.insert(1, "build".to_string());
+        parameters.insert(0, "cargo-gpu".to_owned());
+        parameters.insert(1, "build".to_owned());
 
         let working_directory = path.parent().unwrap();
         log::info!(
@@ -128,7 +124,6 @@ impl Toml {
         log::debug!("build parameters: {parameters:#?}");
         if let Cli {
             command: Command::Build(mut build),
-            ..
         } = Cli::parse_from(parameters)
         {
             log::debug!("build: {build:?}");
@@ -137,5 +132,15 @@ impl Toml {
             log::error!("parameters found in [{toml_type}.metadata.rust-gpu.build] were not parameters to `cargo gpu build`");
             panic!("could not determin build command");
         }
+    }
+
+    /// Parse the `[package.metadata.rust-gpu]` section.
+    fn get_metadata_rustgpu_table<'toml>(
+        toml: &'toml toml::Table,
+        toml_type: &'static str,
+    ) -> Option<&'toml toml::Table> {
+        let workspace = toml.get(toml_type)?.as_table()?;
+        let metadata = workspace.get("metadata")?.as_table()?;
+        metadata.get("rust-gpu")?.as_table()
     }
 }

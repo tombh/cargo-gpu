@@ -51,7 +51,7 @@
 //! for example.
 
 use builder::Build;
-use clap::Parser;
+use clap::Parser as _;
 use install::Install;
 use show::Show;
 use toml::Toml;
@@ -62,20 +62,14 @@ mod show;
 mod spirv;
 mod toml;
 
-fn target_spec_dir() -> std::path::PathBuf {
-    let dir = cache_dir().join("target-specs");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 fn main() {
     env_logger::builder().init();
 
     let args = std::env::args()
-        .filter(|p| {
+        .filter(|arg| {
             // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
             // as the first parameter, which we want to ignore.
-            p != "gpu"
+            arg != "gpu"
         })
         .collect::<Vec<_>>();
     log::trace!("args: {args:?}");
@@ -83,7 +77,7 @@ fn main() {
 
     match cli.command {
         Command::Install(install) => {
-            let _ = install.run();
+            let (_, _) = install.run();
         }
         Command::Build(mut build) => build.run(),
         Command::Toml(toml) => toml.run(),
@@ -92,6 +86,7 @@ fn main() {
     }
 }
 
+/// All of the available subcommands for `cargo gpu`
 #[derive(clap::Subcommand)]
 enum Command {
     /// Install rust-gpu compiler artifacts.
@@ -132,35 +127,46 @@ fn cache_dir() -> std::path::PathBuf {
         .join("rust-gpu")
 }
 
+/// Location of the target spec metadata files
+fn target_spec_dir() -> std::path::PathBuf {
+    let dir = cache_dir().join("target-specs");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// Convenience function for internal use. Dumps all the CLI usage instructions. Useful for
+/// updating the README.
 fn dump_full_usage_for_readme() {
-    use clap::CommandFactory;
+    use clap::CommandFactory as _;
     let mut command = Cli::command();
 
-    let mut buffer: Vec<u8> = Default::default();
+    let mut buffer: Vec<u8> = Vec::default();
     command.build();
 
     write_help(&mut buffer, &mut command, 0);
-    let buffer = String::from_utf8(buffer).unwrap();
-    println!("{}", buffer);
+    println!("{}", String::from_utf8(buffer).unwrap());
 }
 
+/// Recursive function to print the usage instructions for each subcommand.
 fn write_help(buffer: &mut impl std::io::Write, cmd: &mut clap::Command, _depth: usize) {
     if cmd.get_name() == "help" {
         return;
     }
 
-    let mut command = cmd.get_name().to_string();
-    let _ = writeln!(
+    let mut command = cmd.get_name().to_owned();
+    writeln!(
         buffer,
         "\n* {}{}",
         command.remove(0).to_uppercase(),
         command
-    );
-    let _ = writeln!(buffer);
-    let _ = cmd.write_long_help(buffer);
+    )
+    .unwrap();
+    writeln!(buffer).unwrap();
+    cmd.write_long_help(buffer).unwrap();
 
     for sub in cmd.get_subcommands_mut() {
-        let _ = writeln!(buffer);
+        writeln!(buffer).unwrap();
+        #[expect(clippy::used_underscore_binding, reason = "Used in recursion only")]
         write_help(buffer, sub, _depth + 1);
     }
 }
@@ -180,7 +186,7 @@ mod test {
             .file_name()
             .unwrap()
             .to_str()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap();
         assert_eq!(
             "git_https___github_com_Rust-GPU_rust-gpu_git+nightly-2024-04-24",
@@ -202,7 +208,6 @@ mod test {
         ];
         if let Cli {
             command: Command::Build(build),
-            ..
         } = Cli::parse_from(args)
         {
             assert_eq!(shader_crate, build.shader_crate);

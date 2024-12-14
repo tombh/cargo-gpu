@@ -1,16 +1,25 @@
-use std::io::Write;
+//! Install a dedicated per-shader crate that has the `rust-gpu` compiler in it.
+use std::io::Write as _;
 
 use crate::{cache_dir, spirv::Spirv, target_spec_dir};
 
-const SPIRV_BUILDER_CLI_CARGO_TOML: &str = include_str!("../../spirv-builder-cli/Cargo.toml");
-const SPIRV_BUILDER_CLI_MAIN: &str = include_str!("../../spirv-builder-cli/src/main.rs");
-const SPIRV_BUILDER_CLI_LIB: &str = include_str!("../../spirv-builder-cli/src/lib.rs");
+/// These are the files needed to create the dedicated, per-shader `rust-gpu` builder create.
 const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
-    ("Cargo.toml", SPIRV_BUILDER_CLI_CARGO_TOML),
-    ("src/main.rs", SPIRV_BUILDER_CLI_MAIN),
-    ("src/lib.rs", SPIRV_BUILDER_CLI_LIB),
+    (
+        "Cargo.toml",
+        include_str!("../../spirv-builder-cli/Cargo.toml"),
+    ),
+    (
+        "src/main.rs",
+        include_str!("../../spirv-builder-cli/src/main.rs"),
+    ),
+    (
+        "src/lib.rs",
+        include_str!("../../spirv-builder-cli/src/lib.rs"),
+    ),
 ];
 
+/// Metadata for the compile targets supported by `rust-gpu`
 const TARGET_SPECS: &[(&str, &str)] = &[
     (
         "spirv-unknown-opengl4.0.json",
@@ -74,15 +83,16 @@ const TARGET_SPECS: &[(&str, &str)] = &[
     ),
 ];
 
+/// `cargo gpu install`
 #[derive(clap::Parser, Debug)]
-pub(crate) struct Install {
+pub struct Install {
     /// spirv-builder dependency, written just like in a Cargo.toml file.
     #[clap(long, default_value = Spirv::DEFAULT_DEP)]
     spirv_builder: String,
 
     /// Rust toolchain channel to use to build `spirv-builder`.
     ///
-    /// This must match the `spirv_builder` argument.
+    /// This must be compatible with the `spirv_builder` argument as defined in the `rust-gpu` repo.
     #[clap(long, default_value = Spirv::DEFAULT_CHANNEL)]
     rust_toolchain: String,
 
@@ -92,6 +102,7 @@ pub(crate) struct Install {
 }
 
 impl Install {
+    /// Returns a [`Spirv`] instance, responsible for ensuring the right version of the `spirv-builder-cli` crate.
     fn spirv_cli(&self) -> Spirv {
         Spirv {
             dep: self.spirv_builder.clone(),
@@ -99,11 +110,12 @@ impl Install {
         }
     }
 
+    /// Create the `spirv-builder-cli` crate.
     fn write_source_files(&self) {
         let cli = self.spirv_cli();
         let checkout = cli.cached_checkout_path();
         std::fs::create_dir_all(checkout.join("src")).unwrap();
-        for (filename, contents) in SPIRV_BUILDER_FILES.iter() {
+        for (filename, contents) in SPIRV_BUILDER_FILES {
             log::debug!("writing {filename}");
             let path = checkout.join(filename);
             let mut file = std::fs::File::create(&path).unwrap();
@@ -114,8 +126,9 @@ impl Install {
         }
     }
 
+    /// Add the target spec files to the crate.
     fn write_target_spec_files(&self) {
-        for (filename, contents) in TARGET_SPECS.iter() {
+        for (filename, contents) in TARGET_SPECS {
             let path = target_spec_dir().join(filename);
             if !path.is_file() || self.force_spirv_cli_rebuild {
                 let mut file = std::fs::File::create(&path).unwrap();
@@ -124,14 +137,14 @@ impl Install {
         }
     }
 
-    // Install the binary pair and return the paths, (dylib, cli).
+    /// Install the binary pair and return the paths, (dylib, cli).
     pub fn run(&self) -> (std::path::PathBuf, std::path::PathBuf) {
         // Ensure the cache dir exists
         let cache_dir = cache_dir();
         log::info!("cache directory is '{}'", cache_dir.display());
-        std::fs::create_dir_all(&cache_dir).unwrap_or_else(|e| {
+        std::fs::create_dir_all(&cache_dir).unwrap_or_else(|error| {
             log::error!(
-                "could not create cache directory '{}': {e}",
+                "could not create cache directory '{}': {error}",
                 cache_dir.display()
             );
             panic!("could not create cache dir");
@@ -178,7 +191,7 @@ impl Install {
 
             command.args([
                 "--features",
-                &Self::get_required_spirv_builder_version(spirv_version.channel),
+                &Self::get_required_spirv_builder_version(&spirv_version.channel),
             ]);
 
             log::debug!("building artifacts with `{:?}`", command);
@@ -209,8 +222,8 @@ impl Install {
             } else {
                 log::error!("could not find {}", cli_path.display());
                 log::debug!("contents of '{}':", release.display());
-                for entry in std::fs::read_dir(&release).unwrap() {
-                    let entry = entry.unwrap();
+                for maybe_entry in std::fs::read_dir(&release).unwrap() {
+                    let entry = maybe_entry.unwrap();
                     log::debug!("{}", entry.file_name().to_string_lossy());
                 }
                 panic!("spirv-builder-cli build failed");
@@ -228,9 +241,9 @@ impl Install {
     ///     `spirv-builder` version from there.
     ///   * Warn the user that certain `cargo-gpu` features aren't available when building with
     ///     older versions of `spirv-builder`, eg setting the target spec.
-    fn get_required_spirv_builder_version(toolchain_channel: String) -> String {
+    fn get_required_spirv_builder_version(toolchain_channel: &str) -> String {
         let parse_date = chrono::NaiveDate::parse_from_str;
-        let datetime = parse_date(&toolchain_channel, "nightly-%Y-%m-%d").unwrap();
+        let datetime = parse_date(toolchain_channel, "nightly-%Y-%m-%d").unwrap();
         let pre_cli_date = parse_date("2024-04-24", "%Y-%m-%d").unwrap();
 
         if datetime < pre_cli_date {

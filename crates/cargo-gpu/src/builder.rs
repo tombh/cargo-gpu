@@ -1,12 +1,16 @@
-use std::io::Write;
+//! `cargo gpu build`, analogous to `cargo build`
+
+use std::io::Write as _;
 
 use clap::Parser;
 use spirv_builder_cli::{Linkage, ShaderModule};
 
 use crate::{install::Install, target_spec_dir};
 
+/// `cargo build` subcommands
 #[derive(Parser, Debug)]
-pub(crate) struct Build {
+pub struct Build {
+    /// Install the `rust-gpu` compiler and components
     #[clap(flatten)]
     install: Install,
 
@@ -32,6 +36,7 @@ pub(crate) struct Build {
 }
 
 impl Build {
+    /// Entrypoint
     pub fn run(&mut self) {
         let (dylib_path, spirv_builder_cli_path) = self.install.run();
 
@@ -93,7 +98,7 @@ impl Build {
                      entry,
                      path: filepath,
                  }| {
-                    use relative_path::PathExt;
+                    use relative_path::PathExt as _;
                     let path = self.output_dir.join(filepath.file_name().unwrap());
                     std::fs::copy(&filepath, &path).unwrap();
                     let path_relative_to_shader_crate =
@@ -109,19 +114,19 @@ impl Build {
         linkage.sort();
         // UNWRAP: safe because we know this always serializes
         let json = serde_json::to_string_pretty(&linkage).unwrap();
-        let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|e| {
+        let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|error| {
             log::error!(
-                "could not create shader manifest file '{}': {e}",
+                "could not create shader manifest file '{}': {error}",
                 manifest_path.display(),
             );
-            panic!("{e}")
+            panic!("{error}")
         });
-        file.write_all(json.as_bytes()).unwrap_or_else(|e| {
+        file.write_all(json.as_bytes()).unwrap_or_else(|error| {
             log::error!(
-                "could not write shader manifest file '{}': {e}",
+                "could not write shader manifest file '{}': {error}",
                 manifest_path.display(),
             );
-            panic!("{e}")
+            panic!("{error}")
         });
 
         log::info!("wrote manifest to '{}'", manifest_path.display());
