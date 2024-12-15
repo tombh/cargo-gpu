@@ -207,11 +207,17 @@ mod test {
             &format!("{}", output_dir.display()),
         ];
         if let Cli {
-            command: Command::Build(build),
+            command: Command::Build(mut build),
         } = Cli::parse_from(args)
         {
             assert_eq!(shader_crate, build.shader_crate);
             assert_eq!(output_dir, build.output_dir);
+
+            // TODO:
+            // What's the best way to reset caches for this? For example we could add a
+            // `--force-spirv-cli-rebuild`, but that would slow down each test. But without
+            // something like that we might not be getting actual idempotent tests.
+            build.run();
         } else {
             panic!("was not a build command");
         }
