@@ -1,7 +1,6 @@
 //! Shader entry points.
 //!
-//! Contains an example vertex shader, fragment shader and one example compute
-//! shader.
+//! Contains an example vertex shader, fragment shader.
 #![no_std]
 use glam::{Vec2, Vec4};
 use spirv_std::spirv;

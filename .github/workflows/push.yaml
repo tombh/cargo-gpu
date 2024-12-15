@@ -1,8 +1,8 @@
 name: push
 
-on: 
+on:
   push:
-    branches: 
+    branches:
       - main
   pull_request:
 
@@ -13,18 +13,18 @@ env:
 jobs:
   install-and-build-shaders:
     strategy:
-      matrix: 
+      matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
-      run: 
+      run:
         shell: bash
-    env: 
+    env:
       RUST_LOG: debug
     steps:
       - uses: actions/checkout@v2
       - uses: moonrepo/setup-rust@v1
-      - run: rustup default stable 
+      - run: rustup default stable
       - run: rustup update
       - run: cargo test
       - run: cargo install --path crates/cargo-gpu

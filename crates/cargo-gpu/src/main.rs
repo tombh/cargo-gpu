@@ -49,681 +49,45 @@
 //! manifest file can be used by build scripts (`build.rs` files) to generate linkage or
 //! conduct other post-processing, like converting the `spv` files into `wgsl` files,
 //! for example.
-use std::io::Write;
 
-use clap::{Parser, Subcommand};
-use spirv_builder_cli::{Linkage, ShaderModule};
+use build::Build;
+use clap::Parser as _;
+use install::Install;
+use show::Show;
+use toml::Toml;
 
-const SPIRV_BUILDER_CLI_CARGO_TOML: &str = include_str!("../../spirv-builder-cli/Cargo.toml");
-const SPIRV_BUILDER_CLI_MAIN: &str = include_str!("../../spirv-builder-cli/src/main.rs");
-const SPIRV_BUILDER_CLI_LIB: &str = include_str!("../../spirv-builder-cli/src/lib.rs");
-const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
-    ("Cargo.toml", SPIRV_BUILDER_CLI_CARGO_TOML),
-    ("src/main.rs", SPIRV_BUILDER_CLI_MAIN),
-    ("src/lib.rs", SPIRV_BUILDER_CLI_LIB),
-];
+mod build;
+mod install;
+mod show;
+mod spirv;
+mod toml;
 
-const SPIRV_STD_TOOLCHAIN_PAIRS: &[(&str, &str)] = &[("0.10", "nightly-2024-04-24")];
+fn main() {
+    env_logger::builder().init();
 
-const TARGET_SPECS: &[(&str, &str)] = &[
-    (
-        "spirv-unknown-opengl4.0.json",
-        include_str!("../target-specs/spirv-unknown-opengl4.0.json"),
-    ),
-    (
-        "spirv-unknown-opengl4.1.json",
-        include_str!("../target-specs/spirv-unknown-opengl4.1.json"),
-    ),
-    (
-        "spirv-unknown-opengl4.2.json",
-        include_str!("../target-specs/spirv-unknown-opengl4.2.json"),
-    ),
-    (
-        "spirv-unknown-opengl4.3.json",
-        include_str!("../target-specs/spirv-unknown-opengl4.3.json"),
-    ),
-    (
-        "spirv-unknown-opengl4.5.json",
-        include_str!("../target-specs/spirv-unknown-opengl4.5.json"),
-    ),
-    (
-        "spirv-unknown-spv1.0.json",
-        include_str!("../target-specs/spirv-unknown-spv1.0.json"),
-    ),
-    (
-        "spirv-unknown-spv1.1.json",
-        include_str!("../target-specs/spirv-unknown-spv1.1.json"),
-    ),
-    (
-        "spirv-unknown-spv1.2.json",
-        include_str!("../target-specs/spirv-unknown-spv1.2.json"),
-    ),
-    (
-        "spirv-unknown-spv1.3.json",
-        include_str!("../target-specs/spirv-unknown-spv1.3.json"),
-    ),
-    (
-        "spirv-unknown-spv1.4.json",
-        include_str!("../target-specs/spirv-unknown-spv1.4.json"),
-    ),
-    (
-        "spirv-unknown-spv1.5.json",
-        include_str!("../target-specs/spirv-unknown-spv1.5.json"),
-    ),
-    (
-        "spirv-unknown-vulkan1.0.json",
-        include_str!("../target-specs/spirv-unknown-vulkan1.0.json"),
-    ),
-    (
-        "spirv-unknown-vulkan1.1.json",
-        include_str!("../target-specs/spirv-unknown-vulkan1.1.json"),
-    ),
-    (
-        "spirv-unknown-vulkan1.1spv1.4.json",
-        include_str!("../target-specs/spirv-unknown-vulkan1.1spv1.4.json"),
-    ),
-    (
-        "spirv-unknown-vulkan1.2.json",
-        include_str!("../target-specs/spirv-unknown-vulkan1.2.json"),
-    ),
-];
+    let args = std::env::args()
+        .filter(|arg| {
+            // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
+            // as the first parameter, which we want to ignore.
+            arg != "gpu"
+        })
+        .collect::<Vec<_>>();
+    log::trace!("args: {args:?}");
+    let cli = Cli::parse_from(args);
 
-/// Cargo dependency for `spirv-builder` and the rust toolchain channel.
-#[derive(Debug, Clone)]
-struct Spirv {
-    dep: String,
-    channel: String,
-}
-
-impl Default for Spirv {
-    fn default() -> Self {
-        Self {
-            dep: Self::DEFAULT_DEP.into(),
-            channel: Self::DEFAULT_CHANNEL.into(),
+    match cli.command {
+        Command::Install(install) => {
+            let (_, _) = install.run();
         }
+        Command::Build(mut build) => build.run(),
+        Command::Toml(toml) => toml.run(),
+        Command::Show(show) => show.run(),
+        Command::DumpUsage => dump_full_usage_for_readme(),
     }
 }
 
-impl core::fmt::Display for Spirv {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        format!("{}+{}", self.dep, self.channel).fmt(f)
-    }
-}
-
-impl Spirv {
-    const DEFAULT_DEP: &str = r#"{ git = "https://github.com/Rust-GPU/rust-gpu.git" }"#;
-    const DEFAULT_CHANNEL: &str = "nightly-2024-04-24";
-
-    /// Returns a string suitable to use as a directory.
-    ///
-    /// Created from the spirv-builder source dep and the rustc channel.
-    fn to_dirname(&self) -> String {
-        self.to_string()
-            .replace(
-                [std::path::MAIN_SEPARATOR, '\\', '/', '.', ':', '@', '='],
-                "_",
-            )
-            .split(['{', '}', ' ', '\n', '"', '\''])
-            .collect::<Vec<_>>()
-            .concat()
-    }
-
-    fn cached_checkout_path(&self) -> std::path::PathBuf {
-        let checkout_dir = cache_dir().join(self.to_dirname());
-        std::fs::create_dir_all(&checkout_dir).unwrap_or_else(|e| {
-            log::error!(
-                "could not create checkout dir '{}': {e}",
-                checkout_dir.display()
-            );
-            panic!("could not create checkout dir");
-        });
-
-        checkout_dir
-    }
-
-    fn ensure_version_channel_compatibility(&self) {
-        for (version, channel) in SPIRV_STD_TOOLCHAIN_PAIRS.iter() {
-            if version.starts_with(&self.dep) && channel != &self.channel {
-                panic!("expected spirv-std version to be matched with rust toolchain channel {channel}");
-            }
-        }
-    }
-
-    /// Use `rustup` to install the toolchain and components, if not already installed.
-    ///
-    /// Pretty much runs:
-    ///
-    /// * rustup toolchain add nightly-2024-04-24
-    /// * rustup component add --toolchain nightly-2024-04-24 rust-src rustc-dev llvm-tools
-    fn ensure_toolchain_and_components_exist(&self) {
-        // Check for the required toolchain
-        let output = std::process::Command::new("rustup")
-            .args(["toolchain", "list"])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "could not list installed toolchains"
-        );
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if stdout
-            .split_whitespace()
-            .any(|toolchain| toolchain.starts_with(&self.channel))
-        {
-            log::debug!("toolchain {} is already installed", self.channel);
-        } else {
-            let output = std::process::Command::new("rustup")
-                .args(["toolchain", "add"])
-                .arg(&self.channel)
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "could not install required toolchain"
-            );
-        }
-
-        // Check for the required components
-        let output = std::process::Command::new("rustup")
-            .args(["component", "list", "--toolchain"])
-            .arg(&self.channel)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "could not list installed components"
-        );
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let required_components = ["rust-src", "rustc-dev", "llvm-tools"];
-        let installed_components = stdout.lines().collect::<Vec<_>>();
-        let all_components_installed = required_components.iter().all(|component| {
-            installed_components.iter().any(|installed_component| {
-                let is_component = installed_component.starts_with(component);
-                let is_installed = installed_component.ends_with("(installed)");
-                is_component && is_installed
-            })
-        });
-        if all_components_installed {
-            log::debug!("all required components are installed");
-        } else {
-            let output = std::process::Command::new("rustup")
-                .args(["component", "add", "--toolchain"])
-                .arg(&self.channel)
-                .args(["rust-src", "rustc-dev", "llvm-tools"])
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "could not install required components"
-            );
-        }
-    }
-}
-
-fn target_spec_dir() -> std::path::PathBuf {
-    let dir = cache_dir().join("target-specs");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-#[derive(Parser, Debug)]
-struct Install {
-    /// spirv-builder dependency, written just like in a Cargo.toml file.
-    #[clap(long, default_value = Spirv::DEFAULT_DEP)]
-    spirv_builder: String,
-
-    /// Rust toolchain channel to use to build `spirv-builder`.
-    ///
-    /// This must match the `spirv_builder` argument.
-    #[clap(long, default_value = Spirv::DEFAULT_CHANNEL)]
-    rust_toolchain: String,
-
-    /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
-    #[clap(long)]
-    force_spirv_cli_rebuild: bool,
-}
-
-impl Install {
-    fn spirv_cli(&self) -> Spirv {
-        Spirv {
-            dep: self.spirv_builder.clone(),
-            channel: self.rust_toolchain.clone(),
-        }
-    }
-
-    fn write_source_files(&self) {
-        let cli = self.spirv_cli();
-        let checkout = cli.cached_checkout_path();
-        std::fs::create_dir_all(checkout.join("src")).unwrap();
-        for (filename, contents) in SPIRV_BUILDER_FILES.iter() {
-            log::debug!("writing {filename}");
-            let path = checkout.join(filename);
-            let mut file = std::fs::File::create(&path).unwrap();
-            let replaced_contents = contents
-                .replace("${SPIRV_BUILDER_SOURCE}", &cli.dep)
-                .replace("${CHANNEL}", &cli.channel);
-            file.write_all(replaced_contents.as_bytes()).unwrap();
-        }
-    }
-
-    fn write_target_spec_files(&self) {
-        for (filename, contents) in TARGET_SPECS.iter() {
-            let path = target_spec_dir().join(filename);
-            if !path.is_file() || self.force_spirv_cli_rebuild {
-                let mut file = std::fs::File::create(&path).unwrap();
-                file.write_all(contents.as_bytes()).unwrap();
-            }
-        }
-    }
-
-    // Install the binary pair and return the paths, (dylib, cli).
-    fn run(&self) -> (std::path::PathBuf, std::path::PathBuf) {
-        // Ensure the cache dir exists
-        let cache_dir = cache_dir();
-        log::info!("cache directory is '{}'", cache_dir.display());
-        std::fs::create_dir_all(&cache_dir).unwrap_or_else(|e| {
-            log::error!(
-                "could not create cache directory '{}': {e}",
-                cache_dir.display()
-            );
-            panic!("could not create cache dir");
-        });
-
-        let spirv_version = self.spirv_cli();
-        spirv_version.ensure_version_channel_compatibility();
-        spirv_version.ensure_toolchain_and_components_exist();
-
-        let checkout = spirv_version.cached_checkout_path();
-        let release = checkout.join("target").join("release");
-
-        let dylib_filename = format!(
-            "{}rustc_codegen_spirv{}",
-            std::env::consts::DLL_PREFIX,
-            std::env::consts::DLL_SUFFIX
-        );
-        let dylib_path = release.join(&dylib_filename);
-        let dest_dylib_path = checkout.join(&dylib_filename);
-        let dest_cli_path = checkout.join("spirv-builder-cli");
-        if dest_dylib_path.is_file() && dest_cli_path.is_file() {
-            log::info!(
-                "cargo-gpu artifacts are already installed in '{}'",
-                checkout.display()
-            );
-        }
-
-        if dest_dylib_path.is_file() && dest_cli_path.is_file() && !self.force_spirv_cli_rebuild {
-            log::info!("...and so we are aborting the install step.");
-        } else {
-            log::debug!(
-                "writing spirv-builder-cli source files into '{}'",
-                checkout.display()
-            );
-            self.write_source_files();
-            self.write_target_spec_files();
-
-            let mut command = std::process::Command::new("cargo");
-            command
-                .current_dir(&checkout)
-                .arg(format!("+{}", spirv_version.channel))
-                .args(["build", "--release"])
-                .args(["--no-default-features"]);
-
-            command.args([
-                "--features",
-                &Self::get_required_spirv_builder_version(spirv_version.channel),
-            ]);
-
-            log::debug!("building artifacts with `{:?}`", command);
-
-            let output = command
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .output()
-                .unwrap();
-            assert!(output.status.success(), "...build error!");
-
-            if dylib_path.is_file() {
-                log::info!("successfully built {}", dylib_path.display());
-                std::fs::rename(&dylib_path, &dest_dylib_path).unwrap();
-            } else {
-                log::error!("could not find {}", dylib_path.display());
-                panic!("spirv-builder-cli build failed");
-            }
-
-            let cli_path = if cfg!(target_os = "windows") {
-                release.join("spirv-builder-cli").with_extension("exe")
-            } else {
-                release.join("spirv-builder-cli")
-            };
-            if cli_path.is_file() {
-                log::info!("successfully built {}", cli_path.display());
-                std::fs::rename(&cli_path, &dest_cli_path).unwrap();
-            } else {
-                log::error!("could not find {}", cli_path.display());
-                log::debug!("contents of '{}':", release.display());
-                for entry in std::fs::read_dir(&release).unwrap() {
-                    let entry = entry.unwrap();
-                    log::debug!("{}", entry.file_name().to_string_lossy());
-                }
-                panic!("spirv-builder-cli build failed");
-            }
-        }
-        (dest_dylib_path, dest_cli_path)
-    }
-
-    /// The `spirv-builder` crate from the main `rust-gpu` repo hasn't always been setup to
-    /// interact with `cargo-gpu`. Older versions don't have the same `SpirvBuilder` interface. So
-    /// here we choose the right Cargo feature to enable/disable code in `spirv-builder-cli`.
-    ///
-    /// TODO:
-    ///   * Download the actual `rust-gpu` repo as pinned in the shader's `Cargo.lock` and get the
-    ///     `spirv-builder` version from there.
-    ///   * Warn the user that certain `cargo-gpu` features aren't available when building with
-    ///     older versions of `spirv-builder`, eg setting the target spec.
-    fn get_required_spirv_builder_version(toolchain_channel: String) -> String {
-        let parse_date = chrono::NaiveDate::parse_from_str;
-        let datetime = parse_date(&toolchain_channel, "nightly-%Y-%m-%d").unwrap();
-        let pre_cli_date = parse_date("2024-04-24", "%Y-%m-%d").unwrap();
-
-        if datetime < pre_cli_date {
-            "spirv-builder-pre-cli"
-        } else {
-            "spirv-builder-0_10"
-        }
-        .into()
-    }
-}
-
-#[derive(Parser, Debug)]
-struct Build {
-    #[clap(flatten)]
-    install: Install,
-
-    /// Directory containing the shader crate to compile.
-    #[clap(long, default_value = "./")]
-    shader_crate: std::path::PathBuf,
-
-    /// Shader target.
-    #[clap(long, default_value = "spirv-unknown-vulkan1.2")]
-    shader_target: String,
-
-    /// Set cargo default-features.
-    #[clap(long)]
-    no_default_features: bool,
-
-    /// Set cargo features.
-    #[clap(long)]
-    features: Vec<String>,
-
-    /// Path to the output directory for the compiled shaders.
-    #[clap(long, short, default_value = "./")]
-    output_dir: std::path::PathBuf,
-}
-
-impl Build {
-    fn run(&mut self) {
-        let (dylib_path, spirv_builder_cli_path) = self.install.run();
-
-        // Ensure the shader output dir exists
-        log::debug!("ensuring output-dir '{}' exists", self.output_dir.display());
-        std::fs::create_dir_all(&self.output_dir).unwrap();
-        self.output_dir = self.output_dir.canonicalize().unwrap();
-
-        // Ensure the shader crate exists
-        self.shader_crate = self.shader_crate.canonicalize().unwrap();
-        assert!(
-            self.shader_crate.exists(),
-            "shader crate '{}' does not exist. (Current dir is '{}')",
-            self.shader_crate.display(),
-            std::env::current_dir().unwrap().display()
-        );
-
-        let spirv_builder_args = spirv_builder_cli::Args {
-            dylib_path,
-            shader_crate: self.shader_crate.clone(),
-            shader_target: self.shader_target.clone(),
-            path_to_target_spec: target_spec_dir().join(format!("{}.json", self.shader_target)),
-            no_default_features: self.no_default_features,
-            features: self.features.clone(),
-            output_dir: self.output_dir.clone(),
-        };
-
-        // UNWRAP: safe because we know this always serializes
-        let arg = serde_json::to_string_pretty(&spirv_builder_args).unwrap();
-        log::info!("using spirv-builder-cli arg: {arg}");
-
-        // Call spirv-builder-cli to compile the shaders.
-        let output = std::process::Command::new(spirv_builder_cli_path)
-            .arg(arg)
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "build failed");
-
-        let spirv_manifest = self.output_dir.join("spirv-manifest.json");
-        if spirv_manifest.is_file() {
-            log::debug!(
-                "successfully built shaders, raw manifest is at '{}'",
-                spirv_manifest.display()
-            );
-        } else {
-            log::error!("missing raw manifest '{}'", spirv_manifest.display());
-            panic!("missing raw manifest");
-        }
-
-        let shaders: Vec<ShaderModule> =
-            serde_json::from_reader(std::fs::File::open(&spirv_manifest).unwrap()).unwrap();
-
-        let mut linkage: Vec<_> = shaders
-            .into_iter()
-            .map(
-                |ShaderModule {
-                     entry,
-                     path: filepath,
-                 }| {
-                    use relative_path::PathExt;
-                    let path = self.output_dir.join(filepath.file_name().unwrap());
-                    std::fs::copy(&filepath, &path).unwrap();
-                    let path_relative_to_shader_crate =
-                        path.relative_to(&self.shader_crate).unwrap().to_path("");
-                    Linkage::new(entry, path_relative_to_shader_crate)
-                },
-            )
-            .collect();
-
-        // Write the shader manifest json file
-        let manifest_path = self.output_dir.join("manifest.json");
-        // Sort the contents so the output is deterministic
-        linkage.sort();
-        // UNWRAP: safe because we know this always serializes
-        let json = serde_json::to_string_pretty(&linkage).unwrap();
-        let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|e| {
-            log::error!(
-                "could not create shader manifest file '{}': {e}",
-                manifest_path.display(),
-            );
-            panic!("{e}")
-        });
-        file.write_all(json.as_bytes()).unwrap_or_else(|e| {
-            log::error!(
-                "could not write shader manifest file '{}': {e}",
-                manifest_path.display(),
-            );
-            panic!("{e}")
-        });
-
-        log::info!("wrote manifest to '{}'", manifest_path.display());
-
-        if spirv_manifest.is_file() {
-            log::debug!(
-                "removing spirv-manifest.json file '{}'",
-                spirv_manifest.display()
-            );
-            std::fs::remove_file(spirv_manifest).unwrap();
-        }
-    }
-}
-
-#[derive(Parser)]
-struct Toml {
-    /// Path to a workspace or package Cargo.toml file.
-    ///
-    /// Must include a [[workspace | package].metadata.rust-gpu.build] section where
-    /// arguments to `cargo gpu build` are listed.
-    ///
-    /// Path arguments like `output-dir` and `shader-manifest` must be relative to
-    /// the location of the Cargo.toml file.
-    ///
-    /// Example:
-    ///
-    /// ```toml
-    ///     [package.metadata.rust-gpu.build.spirv-builder]
-    ///     git = "https://github.com/Rust-GPU/rust-gpu.git"  
-    ///     rev = "0da80f8"
-    ///
-    ///     [package.metadata.rust-gpu.build]
-    ///     output-dir = "shaders"
-    ///     shader-manifest = "shaders/manifest.json"
-    /// ```
-    ///
-    /// Calling `cargo gpu toml {path/to/Cargo.toml}` with a Cargo.toml that
-    /// contains the example above would compile the crate and place the compiled
-    /// `.spv` files and manifest in a directory "shaders".
-    #[clap(default_value = "./Cargo.toml", verbatim_doc_comment)]
-    path: std::path::PathBuf,
-}
-
-impl Toml {
-    fn run(&self) {
-        // Find the path to the toml file to use
-        let path = if self.path.is_file() && self.path.ends_with(".toml") {
-            self.path.clone()
-        } else {
-            let path = self.path.join("Cargo.toml");
-            if path.is_file() {
-                path
-            } else {
-                log::error!("toml file '{}' is not a file", self.path.display());
-                panic!("toml file '{}' is not a file", self.path.display());
-            }
-        };
-
-        log::info!("using toml file '{}'", path.display());
-
-        // Determine if this is a workspace's Cargo.toml or a crate's Cargo.toml
-        let contents = std::fs::read_to_string(&path).unwrap();
-        let toml: toml::Table = toml::from_str(&contents).unwrap();
-
-        fn get_metadata_rustgpu_table<'a>(
-            toml: &'a toml::Table,
-            toml_type: &'static str,
-        ) -> Option<&'a toml::Table> {
-            let workspace = toml.get(toml_type)?.as_table()?;
-            let metadata = workspace.get("metadata")?.as_table()?;
-            metadata.get("rust-gpu")?.as_table()
-        }
-
-        let (toml_type, table) = if toml.contains_key("workspace") {
-            let table = get_metadata_rustgpu_table(&toml, "workspace")
-                .unwrap_or_else(|| {
-                    panic!(
-                        "toml file '{}' is missing a [workspace.metadata.rust-gpu] table",
-                        path.display()
-                    );
-                })
-                .clone();
-            ("workspace", table)
-        } else if toml.contains_key("package") {
-            let mut table = get_metadata_rustgpu_table(&toml, "package")
-                .unwrap_or_else(|| {
-                    panic!(
-                        "toml file '{}' is missing a [package.metadata.rust-gpu] table",
-                        path.display()
-                    );
-                })
-                .clone();
-            // Ensure the package name is included as the shader-crate parameter
-            if !table.contains_key("shader-crate") {
-                table.insert(
-                    "shader-crate".to_string(),
-                    format!("{}", path.parent().unwrap().display()).into(),
-                );
-            }
-            ("package", table)
-        } else {
-            panic!("toml file '{}' must describe a workspace containing [workspace.metadata.rust-gpu.build] or a describe a crate with [package.metadata.rust-gpu.build]", path.display());
-        };
-        log::info!(
-            "building with [{toml_type}.metadata.rust-gpu.build] section of the toml file at '{}'",
-            path.display()
-        );
-        log::debug!("table: {table:#?}");
-
-        let mut parameters = table
-            .get("build")
-            .unwrap_or_else(|| panic!("toml is missing the 'build' table"))
-            .as_table()
-            .unwrap_or_else(|| {
-                panic!("toml file's '{toml_type}.metadata.rust-gpu.build' property is not a table")
-            })
-            .into_iter()
-            .flat_map(|(k, v)| match v {
-                toml::Value::String(s) => [format!("--{k}"), s.clone()],
-                _ => {
-                    let mut value = String::new();
-                    let ser = toml::ser::ValueSerializer::new(&mut value);
-                    serde::Serialize::serialize(v, ser).unwrap();
-                    [format!("--{k}"), value]
-                }
-            })
-            .collect::<Vec<_>>();
-        parameters.insert(0, "cargo-gpu".to_string());
-        parameters.insert(1, "build".to_string());
-
-        let working_directory = path.parent().unwrap();
-        log::info!(
-            "issuing cargo commands from the working directory '{}'",
-            working_directory.display()
-        );
-        std::env::set_current_dir(working_directory).unwrap();
-
-        log::debug!("build parameters: {parameters:#?}");
-        if let Cli {
-            command: Command::Build(mut build),
-            ..
-        } = Cli::parse_from(parameters)
-        {
-            log::debug!("build: {build:?}");
-            build.run();
-        } else {
-            log::error!("parameters found in [{toml_type}.metadata.rust-gpu.build] were not parameters to `cargo gpu build`");
-            panic!("could not determin build command");
-        }
-    }
-}
-
-#[derive(Parser)]
-struct Show {
-    #[clap(long)]
-    /// Displays the location of the cache directory
-    cache_directory: bool,
-}
-
-impl Show {
-    fn run(self) {
-        if self.cache_directory {
-            log::info!("cache_directory: ");
-            println!("{}", cache_dir().display());
-        }
-    }
-}
-
-#[derive(Subcommand)]
+/// All of the available subcommands for `cargo gpu`
+#[derive(clap::Subcommand)]
 enum Command {
     /// Install rust-gpu compiler artifacts.
     Install(Install),
@@ -745,9 +109,9 @@ enum Command {
     DumpUsage,
 }
 
-#[derive(Parser)]
+#[derive(clap::Parser)]
 #[clap(author, version, about, subcommand_required = true)]
-struct Cli {
+pub(crate) struct Cli {
     /// The command to run.
     #[clap(subcommand)]
     command: Command,
@@ -763,65 +127,54 @@ fn cache_dir() -> std::path::PathBuf {
         .join("rust-gpu")
 }
 
-fn main() {
-    env_logger::builder().init();
-
-    let args = std::env::args()
-        .filter(|p| {
-            // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
-            // as the first parameter, which we want to ignore.
-            p != "gpu"
-        })
-        .collect::<Vec<_>>();
-    log::trace!("args: {args:?}");
-    let cli = Cli::parse_from(args);
-
-    match cli.command {
-        Command::Install(install) => {
-            let _ = install.run();
-        }
-        Command::Build(mut build) => build.run(),
-        Command::Toml(toml) => toml.run(),
-        Command::Show(show) => show.run(),
-        Command::DumpUsage => dump_full_usage_for_readme(),
-    }
+/// Location of the target spec metadata files
+fn target_spec_dir() -> std::path::PathBuf {
+    let dir = cache_dir().join("target-specs");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
+/// Convenience function for internal use. Dumps all the CLI usage instructions. Useful for
+/// updating the README.
 fn dump_full_usage_for_readme() {
-    use clap::CommandFactory;
+    use clap::CommandFactory as _;
     let mut command = Cli::command();
 
-    let mut buffer: Vec<u8> = Default::default();
+    let mut buffer: Vec<u8> = Vec::default();
     command.build();
 
     write_help(&mut buffer, &mut command, 0);
-    let buffer = String::from_utf8(buffer).unwrap();
-    println!("{}", buffer);
+    println!("{}", String::from_utf8(buffer).unwrap());
 }
 
+/// Recursive function to print the usage instructions for each subcommand.
 fn write_help(buffer: &mut impl std::io::Write, cmd: &mut clap::Command, _depth: usize) {
     if cmd.get_name() == "help" {
         return;
     }
 
-    let mut command = cmd.get_name().to_string();
-    let _ = writeln!(
+    let mut command = cmd.get_name().to_owned();
+    writeln!(
         buffer,
         "\n* {}{}",
         command.remove(0).to_uppercase(),
         command
-    );
-    let _ = writeln!(buffer);
-    let _ = cmd.write_long_help(buffer);
+    )
+    .unwrap();
+    writeln!(buffer).unwrap();
+    cmd.write_long_help(buffer).unwrap();
 
     for sub in cmd.get_subcommands_mut() {
-        let _ = writeln!(buffer);
+        writeln!(buffer).unwrap();
+        #[expect(clippy::used_underscore_binding, reason = "Used in recursion only")]
         write_help(buffer, sub, _depth + 1);
     }
 }
 
 #[cfg(test)]
 mod test {
+    use spirv::Spirv;
+
     use super::*;
 
     #[test]
@@ -833,7 +186,7 @@ mod test {
             .file_name()
             .unwrap()
             .to_str()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap();
         assert_eq!(
             "git_https___github_com_Rust-GPU_rust-gpu_git+nightly-2024-04-24",
@@ -854,12 +207,17 @@ mod test {
             &format!("{}", output_dir.display()),
         ];
         if let Cli {
-            command: Command::Build(build),
-            ..
+            command: Command::Build(mut build),
         } = Cli::parse_from(args)
         {
             assert_eq!(shader_crate, build.shader_crate);
             assert_eq!(output_dir, build.output_dir);
+
+            // TODO:
+            // What's the best way to reset caches for this? For example we could add a
+            // `--force-spirv-cli-rebuild`, but that would slow down each test. But without
+            // something like that we might not be getting actual idempotent tests.
+            build.run();
         } else {
             panic!("was not a build command");
         }
