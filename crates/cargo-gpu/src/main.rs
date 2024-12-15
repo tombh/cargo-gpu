@@ -50,13 +50,13 @@
 //! conduct other post-processing, like converting the `spv` files into `wgsl` files,
 //! for example.
 
-use builder::Build;
+use build::Build;
 use clap::Parser as _;
 use install::Install;
 use show::Show;
 use toml::Toml;
 
-mod builder;
+mod build;
 mod install;
 mod show;
 mod spirv;
