@@ -59,7 +59,7 @@ use toml::Toml;
 mod build;
 mod install;
 mod show;
-mod spirv;
+mod spirv_cli;
 mod toml;
 
 fn main() {
@@ -173,14 +173,14 @@ fn write_help(buffer: &mut impl std::io::Write, cmd: &mut clap::Command, _depth:
 
 #[cfg(test)]
 mod test {
-    use spirv::Spirv;
+    use spirv_cli::Spirv as SpirvCLI;
 
     use super::*;
 
     #[test]
     fn cached_checkout_dir_sanity() {
         // Test that
-        let spirv = Spirv::default();
+        let spirv = SpirvCLI::default();
         let dir = spirv.cached_checkout_path();
         let name = dir
             .file_name()
