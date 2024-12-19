@@ -3,6 +3,8 @@
 //! We do this by calling `cargo tree` inside the shader's crate to get the defined `spirv-std`
 //! version. Then with that we `git checkout` the `rust-gpu` repo that corresponds to that version.
 //! From there we can look at the source code to get the required Rust toolchain.
+//!
+//! This is just a test.
 
 /// The canonical `rust-gpu` URI
 const RUST_GPU_REPO: &str = "https://github.com/Rust-GPU/rust-gpu";
