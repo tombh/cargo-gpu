@@ -24,7 +24,7 @@ pub enum SpirvSource {
     /// then the source of `rust-gpu` is `Git`.
     ///
     /// `(String, String)` is the repo source and revision hash or tag.
-    Git((String, String)),
+    Git { url: String, rev: String },
     /// If the shader specifies a version like:
     ///   `spirv-std = { path = "/path/to/rust-gpu" ... }`
     /// then the source of `rust-gpu` is `Path`.
@@ -39,7 +39,11 @@ impl core::fmt::Display for SpirvSource {
         reason = "It's a core library trait implementation"
     )]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        format!("{}+{}", self.to_repo(), self.to_version()).fmt(f)
+        match self {
+            SpirvSource::CratesIO(version) => f.write_str(version),
+            SpirvSource::Git { url, rev } => f.write_str(&format!("{url}+{rev}")),
+            SpirvSource::Path((a, b)) => f.write_str(&format!("{a}+{b}")),
+        }
     }
 }
 
@@ -65,7 +69,7 @@ impl SpirvSource {
     pub fn to_version(&self) -> String {
         match self {
             Self::CratesIO(version) | Self::Path((_, version)) => version.to_string(),
-            Self::Git((_, revision)) => revision.to_string(),
+            Self::Git { rev, .. } => rev.to_string(),
         }
     }
 
@@ -73,7 +77,7 @@ impl SpirvSource {
     fn to_repo(&self) -> String {
         match self {
             Self::CratesIO(_) => RUST_GPU_REPO.to_owned(),
-            Self::Git((repo, _)) => repo.to_owned(),
+            Self::Git { url, .. } => url.to_owned(),
             Self::Path((path, _)) => path.to_owned(),
         }
     }
@@ -162,7 +166,7 @@ impl SpirvSource {
     }
 
     /// Get the shader crate's `spirv_std = ...` definition in its `Cargo.toml`
-    fn get_spirv_std_dep_definition(shader_crate_path: &std::path::PathBuf) -> Self {
+    pub fn get_spirv_std_dep_definition(shader_crate_path: &std::path::PathBuf) -> Self {
         log::debug!("Running `cargo tree` on {}", shader_crate_path.display());
         let output_cargo_tree = std::process::Command::new("cargo")
             .current_dir(shader_crate_path)
@@ -178,6 +182,7 @@ impl SpirvSource {
         let maybe_spirv_std_def = cargo_tree_string
             .lines()
             .find(|line| line.contains("spirv-std"));
+        log::trace!("  found {maybe_spirv_std_def:?}");
 
         let Some(spirv_std_def) = maybe_spirv_std_def else {
             panic!("`spirv-std` not found in shader's `Cargo.toml` at {shader_crate_path:?}:\n{cargo_tree_string}");
@@ -191,6 +196,7 @@ impl SpirvSource {
     /// Which would return:
     ///   `SpirvSource::Git("https://github.com/Rust-GPU/rust-gpu", "54f6978c")`
     fn parse_spirv_std_source_and_version(spirv_std_def: &str) -> Self {
+        log::trace!("parsing spirv-std source and version from def: '{spirv_std_def}'");
         let parts: Vec<String> = spirv_std_def.split_whitespace().map(String::from).collect();
         let version = parts
             .get(1)
@@ -202,9 +208,21 @@ impl SpirvSource {
             let mut source_string = parts.get(2).unwrap().to_owned();
             source_string = source_string.replace(['(', ')'], "");
 
+            // Unfortunately Uri ignores the fragment/hash portion of the Uri.
+            //
+            // There's been a ticket open for years:
+            // <https://github.com/hyperium/http/issues/127>
+            //
+            // So here we'll parse the fragment out of the source string by hand
             let uri = source_string.parse::<http::Uri>().unwrap();
+            let maybe_hash = if source_string.contains('#') {
+                let splits = source_string.split('#');
+                splits.last().map(std::borrow::ToOwned::to_owned)
+            } else {
+                None
+            };
             if uri.scheme().is_some() {
-                source = Self::parse_git_source(version, &uri);
+                source = Self::parse_git_source(version, &uri, maybe_hash);
             } else {
                 source = Self::Path((source_string, version));
             }
@@ -216,9 +234,11 @@ impl SpirvSource {
     }
 
     /// Parse a Git source like: `https://github.com/Rust-GPU/rust-gpu?rev=54f6978c#54f6978c`
-    fn parse_git_source(version: String, uri: &http::Uri) -> Self {
-        let mut revision = version;
-
+    fn parse_git_source(version: String, uri: &http::Uri, fragment: Option<String>) -> Self {
+        log::trace!(
+            "parsing git source from version: '{version}' and uri: '{uri}' and fragment: {}",
+            fragment.as_deref().unwrap_or("?")
+        );
         let repo = format!(
             "{}://{}{}",
             uri.scheme().unwrap(),
@@ -226,14 +246,17 @@ impl SpirvSource {
             uri.path()
         );
 
-        if let Some(query) = uri.query() {
-            let marker = "rev=";
-            let sanity_check = query.contains(marker) && query.split('=').count() == 2;
-            assert!(sanity_check, "revision not found in Git URI: {query}");
-            revision = query.replace(marker, "");
-        }
+        let rev = uri.query().map_or_else(
+            || fragment.unwrap_or(version),
+            |query| {
+                let marker = "rev=";
+                let sanity_check = query.contains(marker) && query.split('=').count() == 2;
+                assert!(sanity_check, "revision not found in Git URI: {query}");
+                query.replace(marker, "")
+            },
+        );
 
-        Self::Git((repo, revision))
+        Self::Git { url: repo, rev }
     }
 
     /// `git clone` the `rust-gpu` repo. We use it to get the required Rust toolchain to compile
@@ -283,10 +306,10 @@ mod test {
         let source = SpirvSource::get_spirv_std_dep_definition(&shader_template_path);
         assert_eq!(
             source,
-            SpirvSource::Git((
-                "https://github.com/Rust-GPU/rust-gpu".to_owned(),
-                "82a0f69".to_owned()
-            ))
+            SpirvSource::Git {
+                url: "https://github.com/Rust-GPU/rust-gpu".to_owned(),
+                rev: "82a0f69".to_owned()
+            }
         );
     }
 
@@ -297,10 +320,23 @@ mod test {
         let source = SpirvSource::parse_spirv_std_source_and_version(definition);
         assert_eq!(
             source,
-            SpirvSource::Git((
-                "https://github.com/Rust-GPU/rust-gpu".to_owned(),
-                "82a0f69".to_owned()
-            ))
+            SpirvSource::Git {
+                url: "https://github.com/Rust-GPU/rust-gpu".to_owned(),
+                rev: "82a0f69".to_owned()
+            }
+        );
+    }
+
+    #[test_log::test]
+    fn parsing_spirv_std_dep_for_git_source_hash() {
+        let definition = "spirv-std v9.9.9 (https://github.com/Rust-GPU/rust-gpu#82a0f69) (*)";
+        let source = SpirvSource::parse_spirv_std_source_and_version(definition);
+        assert_eq!(
+            source,
+            SpirvSource::Git {
+                url: "https://github.com/Rust-GPU/rust-gpu".to_owned(),
+                rev: "82a0f69".to_owned()
+            }
         );
     }
 }

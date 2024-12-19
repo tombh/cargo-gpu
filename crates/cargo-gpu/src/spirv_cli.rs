@@ -48,7 +48,10 @@ impl SpirvCli {
         if let Some(rust_gpu_version) = maybe_rust_gpu_version {
             let mut source = SpirvSource::CratesIO(rust_gpu_version.clone());
             if let Some(rust_gpu_source) = maybe_rust_gpu_source {
-                source = SpirvSource::Git((rust_gpu_source, rust_gpu_version));
+                source = SpirvSource::Git {
+                    url: rust_gpu_source,
+                    rev: rust_gpu_version,
+                };
             }
             maybe_spirv_source = Some(source);
         }

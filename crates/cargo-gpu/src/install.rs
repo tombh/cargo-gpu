@@ -152,7 +152,7 @@ impl Install {
             if line.contains("${AUTO-REPLACE-SOURCE}") {
                 let replaced_line = match spirv_source {
                     SpirvSource::CratesIO(_) => String::new(),
-                    SpirvSource::Git((repo, _)) => format!("git = \"{repo}\""),
+                    SpirvSource::Git { url, .. } => format!("git = \"{url}\""),
                     SpirvSource::Path((path, _)) => format!("path = \"{path}\""),
                 };
                 return format!("{replaced_line}\n");
@@ -163,7 +163,7 @@ impl Install {
                     SpirvSource::CratesIO(version) | SpirvSource::Path((_, version)) => {
                         format!("version = \"{}\"", version.replace('v', ""))
                     }
-                    SpirvSource::Git((_, revision)) => format!("rev = \"{revision}\""),
+                    SpirvSource::Git { rev, .. } => format!("rev = \"{rev}\""),
                 };
                 return format!("{replaced_line}\n");
             }
