@@ -78,10 +78,17 @@ fn main() {
 
     match cli.command {
         Command::Install(install) => {
+            log::debug!("installing with arguments: {install:#?}");
             let (_, _) = install.run();
         }
-        Command::Build(mut build) => build.run(),
-        Command::Toml(toml) => toml.run(),
+        Command::Build(mut build) => {
+            log::debug!("building with arguments: {build:#?}");
+            build.run()
+        }
+        Command::Toml(toml) => {
+            log::debug!("building by toml file with arguments: {toml:#?}");
+            toml.run()
+        }
         Command::Show(show) => show.run(),
         Command::DumpUsage => dump_full_usage_for_readme(),
     }

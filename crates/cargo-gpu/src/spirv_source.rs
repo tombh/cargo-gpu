@@ -172,9 +172,22 @@ impl SpirvSource {
 
     /// Get the shader crate's `spirv_std = ...` definition in its `Cargo.toml`
     pub fn get_spirv_std_dep_definition(shader_crate_path: &std::path::PathBuf) -> Self {
-        log::debug!("Running `cargo tree` on {}", shader_crate_path.display());
+        let cwd = std::env::current_dir().expect("no cwd");
+        let exec_path = if shader_crate_path.is_absolute() {
+            shader_crate_path.clone()
+        } else {
+            cwd.join(shader_crate_path)
+        }
+        .canonicalize()
+        .expect("could not get absolute path to shader crate");
+        if !exec_path.is_dir() {
+            log::error!("{exec_path:?} is not a directory, aborting");
+            panic!("{exec_path:?} is not a directory");
+        }
+
+        log::debug!("Running `cargo tree` on {}", exec_path.display());
         let output_cargo_tree = std::process::Command::new("cargo")
-            .current_dir(shader_crate_path)
+            .current_dir(&exec_path)
             .args(["tree", "--workspace", "--depth", "1", "--prefix", "none"])
             .output()
             .unwrap();
@@ -190,7 +203,7 @@ impl SpirvSource {
         log::trace!("  found {maybe_spirv_std_def:?}");
 
         let Some(spirv_std_def) = maybe_spirv_std_def else {
-            panic!("`spirv-std` not found in shader's `Cargo.toml` at {shader_crate_path:?}:\n{cargo_tree_string}");
+            panic!("`spirv-std` not found in shader's `Cargo.toml` at {exec_path:?}:\n{cargo_tree_string}");
         };
 
         Self::parse_spirv_std_source_and_version(spirv_std_def)
@@ -343,5 +356,11 @@ mod test {
                 rev: "82a0f69".to_owned()
             }
         );
+    }
+
+    #[test_log::test]
+    fn path_sanity() {
+        let path = std::path::PathBuf::from("./");
+        assert!(path.is_relative());
     }
 }

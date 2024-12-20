@@ -5,7 +5,7 @@ use clap::Parser;
 use crate::{Cli, Command};
 
 /// `cargo gpu toml`
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 pub struct Toml {
     /// Path to a workspace or package Cargo.toml file.
     ///
