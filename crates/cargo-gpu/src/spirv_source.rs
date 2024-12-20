@@ -188,7 +188,7 @@ impl SpirvSource {
         log::debug!("Running `cargo tree` on {}", exec_path.display());
         let output_cargo_tree = std::process::Command::new("cargo")
             .current_dir(&exec_path)
-            .args(["tree", "--workspace", "--depth", "1", "--prefix", "none"])
+            .args(["tree", "--workspace", "--prefix", "none"])
             .output()
             .unwrap();
         assert!(
