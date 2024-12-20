@@ -93,6 +93,7 @@ fn main() {
         log::debug!("Calling `rust-gpu`'s `spirv-builder` library");
         builder.build().unwrap()
     };
+    log::debug!("found entry points: {entry_points:#?}");
 
     let dir = output_dir;
     let mut shaders = vec![];
@@ -100,6 +101,7 @@ fn main() {
         ModuleResult::MultiModule(modules) => {
             assert!(!modules.is_empty(), "No shader modules to compile");
             for (entry, filepath) in modules.into_iter() {
+                log::debug!("compiled {entry} {}", filepath.display());
                 shaders.push(ShaderModule::new(entry, filepath));
             }
         }
