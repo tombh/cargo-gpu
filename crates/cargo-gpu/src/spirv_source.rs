@@ -24,7 +24,12 @@ pub enum SpirvSource {
     /// then the source of `rust-gpu` is `Git`.
     ///
     /// `(String, String)` is the repo source and revision hash or tag.
-    Git { url: String, rev: String },
+    Git {
+        /// URL of the repository
+        url: String,
+        /// Revision or "commitsh"
+        rev: String,
+    },
     /// If the shader specifies a version like:
     ///   `spirv-std = { path = "/path/to/rust-gpu" ... }`
     /// then the source of `rust-gpu` is `Path`.
@@ -40,9 +45,9 @@ impl core::fmt::Display for SpirvSource {
     )]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SpirvSource::CratesIO(version) => f.write_str(version),
-            SpirvSource::Git { url, rev } => f.write_str(&format!("{url}+{rev}")),
-            SpirvSource::Path((a, b)) => f.write_str(&format!("{a}+{b}")),
+            Self::CratesIO(version) => f.write_str(version),
+            Self::Git { url, rev } => f.write_str(&format!("{url}+{rev}")),
+            Self::Path((a, b)) => f.write_str(&format!("{a}+{b}")),
         }
     }
 }

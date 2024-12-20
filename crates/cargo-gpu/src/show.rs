@@ -2,8 +2,9 @@
 
 use crate::cache_dir;
 
+/// Show the computed source of the spirv-std dependency.
 #[derive(Clone, Debug, clap::Parser)]
-pub struct ShowSpirvSource {
+pub struct SpirvSourceDep {
     /// The location of the shader-crate to inspect to determine its spirv-std dependency.    
     #[clap(long, default_value = "./")]
     pub shader_crate: std::path::PathBuf,
@@ -15,7 +16,7 @@ pub enum Info {
     /// Displays the location of the cache directory
     CacheDirectory,
     /// The source location of spirv-std
-    SpirvSource(ShowSpirvSource),
+    SpirvSource(SpirvSourceDep),
 }
 
 /// `cargo gpu show`
@@ -34,7 +35,7 @@ impl Show {
             Info::CacheDirectory => {
                 println!("{}", cache_dir().display());
             }
-            Info::SpirvSource(ShowSpirvSource { shader_crate }) => {
+            Info::SpirvSource(SpirvSourceDep { shader_crate }) => {
                 let rust_gpu_source =
                     crate::spirv_source::SpirvSource::get_spirv_std_dep_definition(&shader_crate);
                 println!("{rust_gpu_source}");
