@@ -29,17 +29,19 @@ pub struct Show {
 
 impl Show {
     /// Entrypoint
-    pub fn run(self) {
+    pub fn run(self) -> anyhow::Result<()> {
         log::info!("{:?}: ", self.command);
         match self.command {
             Info::CacheDirectory => {
-                println!("{}", cache_dir().display());
+                println!("{}", cache_dir()?.display());
             }
             Info::SpirvSource(SpirvSourceDep { shader_crate }) => {
                 let rust_gpu_source =
-                    crate::spirv_source::SpirvSource::get_spirv_std_dep_definition(&shader_crate);
+                    crate::spirv_source::SpirvSource::get_spirv_std_dep_definition(&shader_crate)?;
                 println!("{rust_gpu_source}");
             }
         }
+
+        Ok(())
     }
 }

@@ -2,6 +2,7 @@
 
 use std::io::Write as _;
 
+use anyhow::Context as _;
 use clap::Parser;
 use spirv_builder_cli::{Linkage, ShaderModule};
 
@@ -33,35 +34,34 @@ pub struct Build {
 
 impl Build {
     /// Entrypoint
-    pub fn run(&mut self) {
-        let (dylib_path, spirv_builder_cli_path) = self.install.run();
+    pub fn run(&mut self) -> anyhow::Result<()> {
+        let (dylib_path, spirv_builder_cli_path) = self.install.run()?;
 
         // Ensure the shader output dir exists
         log::debug!("ensuring output-dir '{}' exists", self.output_dir.display());
-        std::fs::create_dir_all(&self.output_dir).unwrap();
-        self.output_dir = self.output_dir.canonicalize().unwrap();
+        std::fs::create_dir_all(&self.output_dir)?;
+        self.output_dir = self.output_dir.canonicalize()?;
 
         // Ensure the shader crate exists
-        self.install.shader_crate = self.install.shader_crate.canonicalize().unwrap();
-        assert!(
+        self.install.shader_crate = self.install.shader_crate.canonicalize()?;
+        anyhow::ensure!(
             self.install.shader_crate.exists(),
             "shader crate '{}' does not exist. (Current dir is '{}')",
             self.install.shader_crate.display(),
-            std::env::current_dir().unwrap().display()
+            std::env::current_dir()?.display()
         );
 
         let spirv_builder_args = spirv_builder_cli::Args {
             dylib_path,
             shader_crate: self.install.shader_crate.clone(),
             shader_target: self.shader_target.clone(),
-            path_to_target_spec: target_spec_dir().join(format!("{}.json", self.shader_target)),
+            path_to_target_spec: target_spec_dir()?.join(format!("{}.json", self.shader_target)),
             no_default_features: self.no_default_features,
             features: self.features.clone(),
             output_dir: self.output_dir.clone(),
         };
 
-        // UNWRAP: safe because we know this always serializes
-        let arg = serde_json::to_string_pretty(&spirv_builder_args).unwrap();
+        let arg = serde_json::to_string_pretty(&spirv_builder_args)?;
         log::info!("using spirv-builder-cli arg: {arg}");
 
         // Call spirv-builder-cli to compile the shaders.
@@ -69,9 +69,8 @@ impl Build {
             .arg(arg)
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "build failed");
+            .output()?;
+        anyhow::ensure!(output.status.success(), "build failed");
 
         let spirv_manifest = self.output_dir.join("spirv-manifest.json");
         if spirv_manifest.is_file() {
@@ -81,51 +80,52 @@ impl Build {
             );
         } else {
             log::error!("missing raw manifest '{}'", spirv_manifest.display());
-            panic!("missing raw manifest");
+            anyhow::bail!("missing raw manifest");
         }
 
         let shaders: Vec<ShaderModule> =
-            serde_json::from_reader(std::fs::File::open(&spirv_manifest).unwrap()).unwrap();
+            serde_json::from_reader(std::fs::File::open(&spirv_manifest)?)?;
 
-        let mut linkage: Vec<_> = shaders
+        let mut linkage: Vec<Linkage> = shaders
             .into_iter()
             .map(
                 |ShaderModule {
                      entry,
                      path: filepath,
-                 }| {
+                 }|
+                 -> anyhow::Result<Linkage> {
                     use relative_path::PathExt as _;
-                    let path = self.output_dir.join(filepath.file_name().unwrap());
-                    std::fs::copy(&filepath, &path).unwrap();
-                    let path_relative_to_shader_crate = path
-                        .relative_to(&self.install.shader_crate)
-                        .unwrap()
-                        .to_path("");
-                    Linkage::new(entry, path_relative_to_shader_crate)
+                    let path = self.output_dir.join(
+                        filepath
+                            .file_name()
+                            .context("Couldn't parse file name from shader module path")?,
+                    );
+                    std::fs::copy(&filepath, &path)?;
+                    let path_relative_to_shader_crate =
+                        path.relative_to(&self.install.shader_crate)?.to_path("");
+                    Ok(Linkage::new(entry, path_relative_to_shader_crate))
                 },
             )
-            .collect();
+            .collect::<anyhow::Result<Vec<Linkage>>>()?;
 
         // Write the shader manifest json file
         let manifest_path = self.output_dir.join("manifest.json");
         // Sort the contents so the output is deterministic
         linkage.sort();
         // UNWRAP: safe because we know this always serializes
-        let json = serde_json::to_string_pretty(&linkage).unwrap();
-        let mut file = std::fs::File::create(&manifest_path).unwrap_or_else(|error| {
-            log::error!(
-                "could not create shader manifest file '{}': {error}",
+        let json = serde_json::to_string_pretty(&linkage)?;
+        let mut file = std::fs::File::create(&manifest_path).with_context(|| {
+            format!(
+                "could not create shader manifest file '{}'",
                 manifest_path.display(),
-            );
-            panic!("{error}")
-        });
-        file.write_all(json.as_bytes()).unwrap_or_else(|error| {
-            log::error!(
-                "could not write shader manifest file '{}': {error}",
+            )
+        })?;
+        file.write_all(json.as_bytes()).with_context(|| {
+            format!(
+                "could not write shader manifest file '{}'",
                 manifest_path.display(),
-            );
-            panic!("{error}")
-        });
+            )
+        })?;
 
         log::info!("wrote manifest to '{}'", manifest_path.display());
 
@@ -134,8 +134,10 @@ impl Build {
                 "removing spirv-manifest.json file '{}'",
                 spirv_manifest.display()
             );
-            std::fs::remove_file(spirv_manifest).unwrap();
+            std::fs::remove_file(spirv_manifest)?;
         }
+
+        Ok(())
     }
 }
 

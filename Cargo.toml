@@ -14,8 +14,9 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
+anyhow = "1.0.94"
 clap = { version = "4.4.8", features = ["derive"] }
-chrono = { version = "0.4.38", default-features = false }
+chrono = { version = "0.4.38", default-features = false, features = ["std"] }
 directories = "5.0.1"
 env_home = "0.1.0"
 env_logger = "0.10"
@@ -51,9 +52,4 @@ pattern_type_mismatch = { level = "allow", priority = 1 }
 print_stdout = { level = "allow", priority = 1 }
 std_instead_of_alloc = { level = "allow", priority = 1 }
 
-# TODO: Try to not depend on allowing these lints
-unwrap_used = { level = "allow", priority = 1 }
-get_unwrap = { level = "allow", priority = 1 }
-expect_used = { level = "allow", priority = 1 }
-panic = { level = "allow", priority = 1 }
 
