@@ -65,9 +65,51 @@ mod spirv_cli;
 mod spirv_source;
 mod toml;
 
-fn main() -> anyhow::Result<()> {
+/// Central function to write to the user.
+#[macro_export]
+macro_rules! user_output {
+    ($($args: tt)*) => {
+        #[allow(
+            clippy::allow_attributes,
+            clippy::useless_attribute,
+            unused_imports,
+            reason = "`std::io::Write` is only sometimes called??"
+        )]
+        use std::io::Write as _;
+
+        #[expect(
+            clippy::non_ascii_literal,
+            reason = "CRAB GOOD. CRAB IMPORTANT."
+        )]
+        {
+            print!("🦀 ");
+        }
+        print!($($args)*);
+        std::io::stdout().flush().unwrap();
+   }
+}
+
+fn main() {
+    #[cfg(debug_assertions)]
+    std::env::set_var("RUST_BACKTRACE", "1");
+
     env_logger::builder().init();
 
+    if let Err(error) = run() {
+        log::error!("{error:?}");
+
+        #[expect(
+            clippy::print_stderr,
+            reason = "Our central place for outputting error messages"
+        )]
+        {
+            eprintln!("Error: {error}");
+        }
+    };
+}
+
+/// Wrappable "main" to catch errors.
+fn run() -> anyhow::Result<()> {
     let args = std::env::args()
         .filter(|arg| {
             // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
@@ -161,7 +203,7 @@ fn dump_full_usage_for_readme() -> anyhow::Result<()> {
     command.build();
 
     write_help(&mut buffer, &mut command, 0)?;
-    println!("{}", String::from_utf8(buffer)?);
+    user_output!("{}", String::from_utf8(buffer)?);
 
     Ok(())
 }

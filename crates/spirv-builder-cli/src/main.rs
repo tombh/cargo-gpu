@@ -99,7 +99,7 @@ fn main() {
     let mut shaders = vec![];
     match module {
         ModuleResult::MultiModule(modules) => {
-            anyhow::ensure!(!modules.is_empty(), "No shader modules to compile");
+            assert!(!modules.is_empty(), "No shader modules to compile");
             for (entry, filepath) in modules.into_iter() {
                 log::debug!("compiled {entry} {}", filepath.display());
                 shaders.push(ShaderModule::new(entry, filepath));

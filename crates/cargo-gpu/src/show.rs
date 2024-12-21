@@ -33,12 +33,12 @@ impl Show {
         log::info!("{:?}: ", self.command);
         match self.command {
             Info::CacheDirectory => {
-                println!("{}", cache_dir()?.display());
+                crate::user_output!("{}\n", cache_dir()?.display());
             }
             Info::SpirvSource(SpirvSourceDep { shader_crate }) => {
                 let rust_gpu_source =
                     crate::spirv_source::SpirvSource::get_spirv_std_dep_definition(&shader_crate)?;
-                println!("{rust_gpu_source}");
+                crate::user_output!("{rust_gpu_source}\n");
             }
         }
 

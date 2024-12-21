@@ -118,6 +118,10 @@ pub struct Install {
     /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
     #[clap(long)]
     force_spirv_cli_rebuild: bool,
+
+    /// Assume "yes" to "Install Rust toolchain: [y/n]" prompt.
+    #[clap(long, action)]
+    auto_install_rust_toolchain: bool,
 }
 
 impl Install {
@@ -128,6 +132,7 @@ impl Install {
             self.spirv_builder_source.clone(),
             self.spirv_builder_version.clone(),
             self.rust_toolchain.clone(),
+            self.auto_install_rust_toolchain,
         )
     }
 
@@ -229,6 +234,11 @@ impl Install {
             );
             self.write_source_files()?;
             self.write_target_spec_files()?;
+
+            crate::user_output!(
+                "Compiling shader-specific `spirv-builder-cli` for {}\n",
+                self.shader_crate.display()
+            );
 
             let mut command = std::process::Command::new("cargo");
             command

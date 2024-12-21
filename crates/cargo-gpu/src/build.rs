@@ -1,7 +1,5 @@
 //! `cargo gpu build`, analogous to `cargo build`
 
-use std::io::Write as _;
-
 use anyhow::Context as _;
 use clap::Parser;
 use spirv_builder_cli::{Linkage, ShaderModule};
@@ -64,6 +62,11 @@ impl Build {
         let arg = serde_json::to_string_pretty(&spirv_builder_args)?;
         log::info!("using spirv-builder-cli arg: {arg}");
 
+        crate::user_output!(
+            "Running `spirv-builder-cli` to compile shader at {}...\n",
+            self.install.shader_crate.display()
+        );
+
         // Call spirv-builder-cli to compile the shaders.
         let output = std::process::Command::new(spirv_builder_cli_path)
             .arg(arg)
@@ -112,7 +115,6 @@ impl Build {
         let manifest_path = self.output_dir.join("manifest.json");
         // Sort the contents so the output is deterministic
         linkage.sort();
-        // UNWRAP: safe because we know this always serializes
         let json = serde_json::to_string_pretty(&linkage)?;
         let mut file = std::fs::File::create(&manifest_path).with_context(|| {
             format!(

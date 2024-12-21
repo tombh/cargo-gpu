@@ -320,6 +320,8 @@ impl SpirvSource {
             self.to_dirname()?.to_string_lossy().as_ref(),
         );
 
+        crate::user_output!("Cloning `rust-gpu` repo...");
+
         let output_clone = std::process::Command::new("git")
             .args([
                 "clone",

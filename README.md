@@ -100,6 +100,9 @@ Options:
       --force-spirv-cli-rebuild
           Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt
 
+      --auto-install-rust-toolchain
+          Assume "yes" to "Install Rust toolchain: [y/n]" prompt
+
   -h, --help
           Print help (see a summary with '-h')
 
@@ -133,6 +136,9 @@ Options:
 
       --force-spirv-cli-rebuild
           Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt
+
+      --auto-install-rust-toolchain
+          Assume "yes" to "Install Rust toolchain: [y/n]" prompt
 
       --shader-target <SHADER_TARGET>
           Shader target
@@ -197,13 +203,44 @@ Options:
 
 Show some useful values
 
-Usage: cargo-gpu show [OPTIONS]
+Usage: cargo-gpu show <COMMAND>
+
+Commands:
+  cache-directory  Displays the location of the cache directory
+  spirv-source     The source location of spirv-std
+  help             Print this message or the help of the given subcommand(s)
 
 Options:
-      --cache-directory
-          Displays the location of the cache directory
-
   -h, --help
           Print help
+
+
+    * Cache-directory
+
+    Displays the location of the cache directory
+
+    Usage: cargo-gpu show cache-directory
+
+    Options:
+      -h, --help
+              Print help
+
+
+    * Spirv-source
+
+    The source location of spirv-std
+
+    Usage: cargo-gpu show spirv-source [OPTIONS]
+
+    Options:
+          --shader-crate <SHADER_CRATE>
+              The location of the shader-crate to inspect to determine its spirv-std dependency
+
+              [default: ./]
+
+      -h, --help
+              Print help
+
+
 
 ````

@@ -23,6 +23,8 @@ pub struct SpirvCli {
     pub channel: String,
     /// The date of the pinned version of `rust-gpu`
     pub date: chrono::NaiveDate,
+    /// Has the user overridden the toolchain consent prompt
+    is_toolchain_install_consent: bool,
 }
 
 impl core::fmt::Display for SpirvCli {
@@ -42,6 +44,7 @@ impl SpirvCli {
         maybe_rust_gpu_source: Option<String>,
         maybe_rust_gpu_version: Option<String>,
         maybe_rust_gpu_channel: Option<String>,
+        is_toolchain_install_consent: bool,
     ) -> anyhow::Result<Self> {
         let (default_rust_gpu_source, rust_gpu_date, default_rust_gpu_channel) =
             SpirvSource::get_rust_gpu_deps_from_shader(shader_crate_path)?;
@@ -62,6 +65,7 @@ impl SpirvCli {
             source: maybe_spirv_source.unwrap_or(default_rust_gpu_source),
             channel: maybe_rust_gpu_channel.unwrap_or(default_rust_gpu_channel),
             date: rust_gpu_date,
+            is_toolchain_install_consent,
         })
     }
 
@@ -99,6 +103,10 @@ impl SpirvCli {
         {
             log::debug!("toolchain {} is already installed", self.channel);
         } else {
+            self.get_consent_for_toolchain_install(
+                format!("Install Rust {} with `rustup`", self.channel).as_ref(),
+            )?;
+
             let output_toolchain_add = std::process::Command::new("rustup")
                 .args(["toolchain", "add"])
                 .arg(&self.channel)
@@ -133,6 +141,10 @@ impl SpirvCli {
         if all_components_installed {
             log::debug!("all required components are installed");
         } else {
+            self.get_consent_for_toolchain_install(
+                "Install toolchain components (rust-src, rustc-dev, llvm-tools) with `rustup`",
+            )?;
+
             let output_component_add = std::process::Command::new("rustup")
                 .args(["component", "add", "--toolchain"])
                 .arg(&self.channel)
@@ -148,6 +160,29 @@ impl SpirvCli {
 
         Ok(())
     }
+
+    /// Prompt user if they want to install a new Rust toolchain.
+    fn get_consent_for_toolchain_install(&self, prompt: &str) -> anyhow::Result<()> {
+        if self.is_toolchain_install_consent {
+            return Ok(());
+        }
+        crossterm::terminal::enable_raw_mode()?;
+        crate::user_output!("{prompt} [y/n]: ");
+        let input = crossterm::event::read()?;
+        crossterm::terminal::disable_raw_mode()?;
+        crate::user_output!("{:?}\n", input);
+
+        if let crossterm::event::Event::Key(crossterm::event::KeyEvent {
+            code: crossterm::event::KeyCode::Char('y'),
+            ..
+        }) = input
+        {
+            Ok(())
+        } else {
+            crate::user_output!("Exiting...\n");
+            std::process::exit(0);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -157,7 +192,7 @@ mod test {
     #[test_log::test]
     fn cached_checkout_dir_sanity() {
         let shader_template_path = crate::test::shader_crate_template_path();
-        let spirv = SpirvCli::new(&shader_template_path, None, None, None).unwrap();
+        let spirv = SpirvCli::new(&shader_template_path, None, None, None, true).unwrap();
         let dir = spirv.cached_checkout_path().unwrap();
         let name = dir
             .file_name()
