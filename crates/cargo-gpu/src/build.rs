@@ -12,11 +12,7 @@ use crate::{install::Install, target_spec_dir};
 pub struct Build {
     /// Install the `rust-gpu` compiler and components
     #[clap(flatten)]
-    install: Install,
-
-    /// Directory containing the shader crate to compile.
-    #[clap(long, default_value = "./")]
-    pub shader_crate: std::path::PathBuf,
+    pub install: Install,
 
     /// Shader target.
     #[clap(long, default_value = "spirv-unknown-vulkan1.2")]
@@ -46,17 +42,17 @@ impl Build {
         self.output_dir = self.output_dir.canonicalize().unwrap();
 
         // Ensure the shader crate exists
-        self.shader_crate = self.shader_crate.canonicalize().unwrap();
+        self.install.shader_crate = self.install.shader_crate.canonicalize().unwrap();
         assert!(
-            self.shader_crate.exists(),
+            self.install.shader_crate.exists(),
             "shader crate '{}' does not exist. (Current dir is '{}')",
-            self.shader_crate.display(),
+            self.install.shader_crate.display(),
             std::env::current_dir().unwrap().display()
         );
 
         let spirv_builder_args = spirv_builder_cli::Args {
             dylib_path,
-            shader_crate: self.shader_crate.clone(),
+            shader_crate: self.install.shader_crate.clone(),
             shader_target: self.shader_target.clone(),
             path_to_target_spec: target_spec_dir().join(format!("{}.json", self.shader_target)),
             no_default_features: self.no_default_features,
@@ -101,8 +97,10 @@ impl Build {
                     use relative_path::PathExt as _;
                     let path = self.output_dir.join(filepath.file_name().unwrap());
                     std::fs::copy(&filepath, &path).unwrap();
-                    let path_relative_to_shader_crate =
-                        path.relative_to(&self.shader_crate).unwrap().to_path("");
+                    let path_relative_to_shader_crate = path
+                        .relative_to(&self.install.shader_crate)
+                        .unwrap()
+                        .to_path("");
                     Linkage::new(entry, path_relative_to_shader_crate)
                 },
             )
@@ -137,6 +135,45 @@ impl Build {
                 spirv_manifest.display()
             );
             std::fs::remove_file(spirv_manifest).unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{Cli, Command};
+
+    use super::*;
+
+    #[test_log::test]
+    fn builder_from_params() {
+        crate::test::tests_teardown();
+
+        let shader_crate_path = crate::test::shader_crate_template_path();
+        let output_dir = shader_crate_path.join("shaders");
+
+        let args = [
+            "target/debug/cargo-gpu",
+            "build",
+            "--shader-crate",
+            &format!("{}", shader_crate_path.display()),
+            "--output-dir",
+            &format!("{}", output_dir.display()),
+        ];
+        if let Cli {
+            command: Command::Build(build),
+        } = Cli::parse_from(args)
+        {
+            assert_eq!(shader_crate_path, build.install.shader_crate);
+            assert_eq!(output_dir, build.output_dir);
+
+            // TODO:
+            // For some reason running a full build (`build.run()`) inside tests fails on Windows.
+            // The error is in the `build.rs` step of compiling `spirv-tools-sys`. It is not clear
+            // from the logged error what the problem is. For now we'll just run a full build
+            // outside the tests environment, see `justfile`'s `build-shader-template`.
+        } else {
+            panic!("was not a build command");
         }
     }
 }
