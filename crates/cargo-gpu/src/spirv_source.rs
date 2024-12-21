@@ -3,8 +3,6 @@
 //! We do this by calling `cargo tree` inside the shader's crate to get the defined `spirv-std`
 //! version. Then with that we `git checkout` the `rust-gpu` repo that corresponds to that version.
 //! From there we can look at the source code to get the required Rust toolchain.
-//!
-//! This is just a test.
 
 /// The canonical `rust-gpu` URI
 const RUST_GPU_REPO: &str = "https://github.com/Rust-GPU/rust-gpu";
@@ -22,8 +20,6 @@ pub enum SpirvSource {
     /// If the shader specifies a version like:
     ///   `spirv-std = { git = "https://github.com..." ... }`
     /// then the source of `rust-gpu` is `Git`.
-    ///
-    /// `(String, String)` is the repo source and revision hash or tag.
     Git {
         /// URL of the repository
         url: String,
@@ -33,8 +29,6 @@ pub enum SpirvSource {
     /// If the shader specifies a version like:
     ///   `spirv-std = { path = "/path/to/rust-gpu" ... }`
     /// then the source of `rust-gpu` is `Path`.
-    ///
-    /// `(String, String)` is the repo path and the version.
     Path((String, String)),
 }
 
@@ -95,7 +89,7 @@ impl SpirvSource {
         crate::cache_dir().join("rust-gpu-repo").join(dir)
     }
 
-    /// Checkout the `rust-gpu` to the requested version.
+    /// Checkout the `rust-gpu` repo to the requested version.
     fn checkout(&self) {
         log::debug!(
             "Checking out `rust-gpu` repo at {} to {}",

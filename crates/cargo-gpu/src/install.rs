@@ -146,7 +146,8 @@ impl Install {
         }
     }
 
-    /// Create the `spirv-builder-cli` crate.
+    /// Update  the `Cargo.toml` file in the `spirv-builder-cli` crate so that it contains
+    /// the correct version of `spirv-builder-cli`.
     fn update_cargo_toml(contents: &str, spirv_source: &SpirvSource) -> String {
         let updated = contents.lines().map(|line| {
             if line.contains("${AUTO-REPLACE-SOURCE}") {

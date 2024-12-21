@@ -161,13 +161,17 @@ mod test {
             &format!("{}", output_dir.display()),
         ];
         if let Cli {
-            command: Command::Build(mut build),
+            command: Command::Build(build),
         } = Cli::parse_from(args)
         {
             assert_eq!(shader_crate_path, build.install.shader_crate);
             assert_eq!(output_dir, build.output_dir);
 
-            build.run();
+            // TODO:
+            // For some reason running a full build (`build.run()`) inside tests fails on Windows.
+            // The error is in the `build.rs` step of compiling `spirv-tools-sys`. It is not clear
+            // from the logged error what the problem is. For now we'll just run a full build
+            // outside the tests environment, see `justfile`'s `build-shader-template`.
         } else {
             panic!("was not a build command");
         }

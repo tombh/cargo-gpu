@@ -28,15 +28,22 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: moonrepo/setup-rust@v1
+      - uses: extractions/setup-just@v2
       - name: Install Rust toolchain
         run: |
           rustup default stable
           rustup update
       - run: cargo test
+      - name: Run a full build
+        run: just build-shader-template
+          
 
-  clippy:
+  lints:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: moonrepo/setup-rust@v1
-      - run: cargo clippy -- --deny warnings
+      - uses: extractions/setup-just@v2
+      - uses: cargo-bins/cargo-binstall@main
+      - run: just setup-lints
+      - run: just lints
