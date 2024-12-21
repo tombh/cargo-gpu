@@ -41,3 +41,8 @@ package = "spirv-builder"
 optional = true
 git = "https://github.com/Rust-GPU/rust-gpu" # ${AUTO-REPLACE-SOURCE}
 rev = "60dcb82" # ${AUTO-REPLACE-VERSION}
+
+[lints.rust]
+# This crate is most often run by end users compiling their shaders so it's not so relevant
+# for them to see warnings.
+warnings = "allow"

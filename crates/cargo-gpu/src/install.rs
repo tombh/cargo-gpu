@@ -1,6 +1,8 @@
 //! Install a dedicated per-shader crate that has the `rust-gpu` compiler in it.
 use std::io::Write as _;
 
+use anyhow::Context as _;
+
 use crate::{cache_dir, spirv_cli::SpirvCli, spirv_source::SpirvSource, target_spec_dir};
 
 /// These are the files needed to create the dedicated, per-shader `rust-gpu` builder create.
@@ -116,34 +118,40 @@ pub struct Install {
     /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
     #[clap(long)]
     force_spirv_cli_rebuild: bool,
+
+    /// Assume "yes" to "Install Rust toolchain: [y/n]" prompt.
+    #[clap(long, action)]
+    auto_install_rust_toolchain: bool,
 }
 
 impl Install {
     /// Returns a [`SpirvCLI`] instance, responsible for ensuring the right version of the `spirv-builder-cli` crate.
-    fn spirv_cli(&self, shader_crate_path: &std::path::PathBuf) -> SpirvCli {
+    fn spirv_cli(&self, shader_crate_path: &std::path::PathBuf) -> anyhow::Result<SpirvCli> {
         SpirvCli::new(
             shader_crate_path,
             self.spirv_builder_source.clone(),
             self.spirv_builder_version.clone(),
             self.rust_toolchain.clone(),
+            self.auto_install_rust_toolchain,
         )
     }
 
     /// Create the `spirv-builder-cli` crate.
-    fn write_source_files(&self) {
-        let spirv_cli = self.spirv_cli(&self.shader_crate);
-        let checkout = spirv_cli.cached_checkout_path();
-        std::fs::create_dir_all(checkout.join("src")).unwrap();
+    fn write_source_files(&self) -> anyhow::Result<()> {
+        let spirv_cli = self.spirv_cli(&self.shader_crate)?;
+        let checkout = spirv_cli.cached_checkout_path()?;
+        std::fs::create_dir_all(checkout.join("src"))?;
         for (filename, contents) in SPIRV_BUILDER_FILES {
             log::debug!("writing {filename}");
             let path = checkout.join(filename);
-            let mut file = std::fs::File::create(&path).unwrap();
+            let mut file = std::fs::File::create(&path)?;
             let mut replaced_contents = contents.replace("${CHANNEL}", &spirv_cli.channel);
             if filename == &"Cargo.toml" {
                 replaced_contents = Self::update_cargo_toml(&replaced_contents, &spirv_cli.source);
             }
-            file.write_all(replaced_contents.as_bytes()).unwrap();
+            file.write_all(replaced_contents.as_bytes())?;
         }
+        Ok(())
     }
 
     /// Update  the `Cargo.toml` file in the `spirv-builder-cli` crate so that it contains
@@ -176,33 +184,30 @@ impl Install {
     }
 
     /// Add the target spec files to the crate.
-    fn write_target_spec_files(&self) {
+    fn write_target_spec_files(&self) -> anyhow::Result<()> {
         for (filename, contents) in TARGET_SPECS {
-            let path = target_spec_dir().join(filename);
+            let path = target_spec_dir()?.join(filename);
             if !path.is_file() || self.force_spirv_cli_rebuild {
-                let mut file = std::fs::File::create(&path).unwrap();
-                file.write_all(contents.as_bytes()).unwrap();
+                let mut file = std::fs::File::create(&path)?;
+                file.write_all(contents.as_bytes())?;
             }
         }
+        Ok(())
     }
 
     /// Install the binary pair and return the paths, (dylib, cli).
-    pub fn run(&self) -> (std::path::PathBuf, std::path::PathBuf) {
+    pub fn run(&self) -> anyhow::Result<(std::path::PathBuf, std::path::PathBuf)> {
         // Ensure the cache dir exists
-        let cache_dir = cache_dir();
+        let cache_dir = cache_dir()?;
         log::info!("cache directory is '{}'", cache_dir.display());
-        std::fs::create_dir_all(&cache_dir).unwrap_or_else(|error| {
-            log::error!(
-                "could not create cache directory '{}': {error}",
-                cache_dir.display()
-            );
-            panic!("could not create cache dir");
-        });
+        std::fs::create_dir_all(&cache_dir).with_context(|| {
+            format!("could not create cache directory '{}'", cache_dir.display())
+        })?;
 
-        let spirv_version = self.spirv_cli(&self.shader_crate);
-        spirv_version.ensure_toolchain_and_components_exist();
+        let spirv_version = self.spirv_cli(&self.shader_crate)?;
+        spirv_version.ensure_toolchain_and_components_exist()?;
 
-        let checkout = spirv_version.cached_checkout_path();
+        let checkout = spirv_version.cached_checkout_path()?;
         let release = checkout.join("target").join("release");
 
         let dylib_filename = format!(
@@ -227,8 +232,13 @@ impl Install {
                 "writing spirv-builder-cli source files into '{}'",
                 checkout.display()
             );
-            self.write_source_files();
-            self.write_target_spec_files();
+            self.write_source_files()?;
+            self.write_target_spec_files()?;
+
+            crate::user_output!(
+                "Compiling shader-specific `spirv-builder-cli` for {}\n",
+                self.shader_crate.display()
+            );
 
             let mut command = std::process::Command::new("cargo");
             command
@@ -239,7 +249,7 @@ impl Install {
 
             command.args([
                 "--features",
-                &Self::get_required_spirv_builder_version(spirv_version.date),
+                &Self::get_required_spirv_builder_version(spirv_version.date)?,
             ]);
 
             log::debug!("building artifacts with `{:?}`", command);
@@ -247,16 +257,15 @@ impl Install {
             let output = command
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
-                .output()
-                .unwrap();
-            assert!(output.status.success(), "...build error!");
+                .output()?;
+            anyhow::ensure!(output.status.success(), "...build error!");
 
             if dylib_path.is_file() {
                 log::info!("successfully built {}", dylib_path.display());
-                std::fs::rename(&dylib_path, &dest_dylib_path).unwrap();
+                std::fs::rename(&dylib_path, &dest_dylib_path)?;
             } else {
                 log::error!("could not find {}", dylib_path.display());
-                panic!("spirv-builder-cli build failed");
+                anyhow::bail!("spirv-builder-cli build failed");
             }
 
             let cli_path = if cfg!(target_os = "windows") {
@@ -266,18 +275,18 @@ impl Install {
             };
             if cli_path.is_file() {
                 log::info!("successfully built {}", cli_path.display());
-                std::fs::rename(&cli_path, &dest_cli_path).unwrap();
+                std::fs::rename(&cli_path, &dest_cli_path)?;
             } else {
                 log::error!("could not find {}", cli_path.display());
                 log::debug!("contents of '{}':", release.display());
-                for maybe_entry in std::fs::read_dir(&release).unwrap() {
-                    let entry = maybe_entry.unwrap();
+                for maybe_entry in std::fs::read_dir(&release)? {
+                    let entry = maybe_entry?;
                     log::debug!("{}", entry.file_name().to_string_lossy());
                 }
-                panic!("spirv-builder-cli build failed");
+                anyhow::bail!("spirv-builder-cli build failed");
             }
         }
-        (dest_dylib_path, dest_cli_path)
+        Ok((dest_dylib_path, dest_cli_path))
     }
 
     /// The `spirv-builder` crate from the main `rust-gpu` repo hasn't always been setup to
@@ -287,15 +296,15 @@ impl Install {
     /// TODO:
     ///   * Warn the user that certain `cargo-gpu` features aren't available when building with
     ///     older versions of `spirv-builder`, eg setting the target spec.
-    fn get_required_spirv_builder_version(date: chrono::NaiveDate) -> String {
+    fn get_required_spirv_builder_version(date: chrono::NaiveDate) -> anyhow::Result<String> {
         let parse_date = chrono::NaiveDate::parse_from_str;
-        let pre_cli_date = parse_date("2024-04-24", "%Y-%m-%d").unwrap();
+        let pre_cli_date = parse_date("2024-04-24", "%Y-%m-%d")?;
 
-        if date < pre_cli_date {
+        Ok(if date < pre_cli_date {
             "spirv-builder-pre-cli"
         } else {
             "spirv-builder-0_10"
         }
-        .into()
+        .into())
     }
 }
