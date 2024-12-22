@@ -104,7 +104,12 @@ fn main() {
         )]
         {
             eprintln!("Error: {error}");
-        }
+
+            // `clippy::exit` seems to be a false positive in `main()`.
+            // See: https://github.com/rust-lang/rust-clippy/issues/13518
+            #[expect(clippy::restriction, reason = "Our central place for safely exiting")]
+            std::process::exit(1);
+        };
     };
 }
 
