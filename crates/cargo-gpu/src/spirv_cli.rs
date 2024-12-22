@@ -103,9 +103,9 @@ impl SpirvCli {
         {
             log::debug!("toolchain {} is already installed", self.channel);
         } else {
-            self.get_consent_for_toolchain_install(
-                format!("Install Rust {} with `rustup`", self.channel).as_ref(),
-            )?;
+            let message = format!("Rust {} with `rustup`", self.channel);
+            self.get_consent_for_toolchain_install(format!("Install {message}").as_ref())?;
+            crate::user_output!("Installing {message}");
 
             let output_toolchain_add = std::process::Command::new("rustup")
                 .args(["toolchain", "add"])
@@ -141,9 +141,9 @@ impl SpirvCli {
         if all_components_installed {
             log::debug!("all required components are installed");
         } else {
-            self.get_consent_for_toolchain_install(
-                "Install toolchain components (rust-src, rustc-dev, llvm-tools) with `rustup`",
-            )?;
+            let message = "toolchain components (rust-src, rustc-dev, llvm-tools) with `rustup`";
+            self.get_consent_for_toolchain_install(format!("Install {message}").as_ref())?;
+            crate::user_output!("Installing {message}");
 
             let output_component_add = std::process::Command::new("rustup")
                 .args(["component", "add", "--toolchain"])
