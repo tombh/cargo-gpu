@@ -31,14 +31,22 @@ impl Show {
     /// Entrypoint
     pub fn run(self) -> anyhow::Result<()> {
         log::info!("{:?}: ", self.command);
+
+        #[expect(
+            clippy::print_stdout,
+            reason = "The output of this command could potentially be used in a script, \
+                      so we _don't_ want to use `crate::user_output`, as that prefixes a crab."
+        )]
         match self.command {
             Info::CacheDirectory => {
-                crate::user_output!("{}\n", cache_dir()?.display());
+                println!("{}\n", cache_dir()?.display());
             }
             Info::SpirvSource(SpirvSourceDep { shader_crate }) => {
                 let rust_gpu_source =
                     crate::spirv_source::SpirvSource::get_spirv_std_dep_definition(&shader_crate)?;
-                crate::user_output!("{rust_gpu_source}\n");
+                {
+                    println!("{rust_gpu_source}\n");
+                }
             }
         }
 
