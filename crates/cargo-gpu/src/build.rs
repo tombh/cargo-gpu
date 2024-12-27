@@ -38,7 +38,9 @@ impl Build {
         // Ensure the shader output dir exists
         log::debug!("ensuring output-dir '{}' exists", self.output_dir.display());
         std::fs::create_dir_all(&self.output_dir)?;
-        self.output_dir = self.output_dir.canonicalize()?;
+        let canonicalized = self.output_dir.canonicalize()?;
+        log::debug!("canonicalized output dir: {canonicalized:?}");
+        self.output_dir = canonicalized;
 
         // Ensure the shader crate exists
         self.install.shader_crate = self.install.shader_crate.canonicalize()?;

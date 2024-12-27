@@ -117,12 +117,6 @@ impl Toml {
             command: Command::Build(mut build),
         } = Cli::parse_from(parameters)
         {
-            // Ensure that the output directory is relative to the toml file
-            if build.output_dir.is_relative() {
-                let dir = path.parent().context("no path parent")?;
-                build.output_dir = dir.join(build.output_dir);
-            }
-
             log::debug!("build: {build:?}");
             build.run()?;
         } else {
