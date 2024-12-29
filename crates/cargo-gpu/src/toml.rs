@@ -75,36 +75,12 @@ impl Toml {
         } else {
             anyhow::bail!("toml file '{}' must describe a workspace containing [workspace.metadata.rust-gpu.build] or a describe a crate with [package.metadata.rust-gpu.build]", path.display());
         };
+
         log::info!(
             "building with [{toml_type}.metadata.rust-gpu.build] section of the toml file at '{}'",
             path.display()
         );
         log::debug!("table: {table:#?}");
-
-        let mut parameters: Vec<String> = table
-            .get("build")
-            .with_context(|| "toml is missing the 'build' table")?
-            .as_table()
-            .with_context(|| {
-                format!("toml file's '{toml_type}.metadata.rust-gpu.build' property is not a table")
-            })?
-            .into_iter()
-            .map(|(key, val)| -> anyhow::Result<Vec<String>> {
-                Ok(if let toml::Value::String(string) = val {
-                    [format!("--{key}"), string.clone()].into()
-                } else {
-                    let mut value = String::new();
-                    let ser = toml::ser::ValueSerializer::new(&mut value);
-                    serde::Serialize::serialize(val, ser)?;
-                    [format!("--{key}"), value].into()
-                })
-            })
-            .collect::<anyhow::Result<Vec<Vec<String>>>>()?
-            .into_iter()
-            .flatten()
-            .collect();
-        parameters.insert(0, "cargo-gpu".to_owned());
-        parameters.insert(1, "build".to_owned());
 
         log::info!(
             "issuing cargo commands from the working directory '{}'",
@@ -112,6 +88,7 @@ impl Toml {
         );
         std::env::set_current_dir(working_directory)?;
 
+        let parameters = construct_build_parameters_from_toml_table(toml_type, &table)?;
         log::debug!("build parameters: {parameters:#?}");
         if let Cli {
             command: Command::Build(mut build),
@@ -161,4 +138,49 @@ impl Toml {
         let metadata = workspace.get("metadata")?.as_table()?;
         metadata.get("rust-gpu")?.as_table()
     }
+}
+
+/// Construct the cli parameters to run a `cargo gpu build` command from a TOML table.
+fn construct_build_parameters_from_toml_table(
+    toml_type: &str,
+    table: &toml::map::Map<String, toml::Value>,
+) -> Result<Vec<String>, anyhow::Error> {
+    let build_table = table
+        .get("build")
+        .with_context(|| "toml is missing the 'build' table")?
+        .as_table()
+        .with_context(|| {
+            format!("toml file's '{toml_type}.metadata.rust-gpu.build' property is not a table")
+        })?;
+    let mut parameters: Vec<String> = build_table
+        .into_iter()
+        .map(|(key, val)| -> anyhow::Result<Vec<String>> {
+            Ok(match val {
+                toml::Value::String(string) => vec![format!("--{key}"), string.clone()],
+                toml::Value::Boolean(truthy) => {
+                    if *truthy {
+                        vec![format!("--{key}")]
+                    } else {
+                        vec![]
+                    }
+                }
+                toml::Value::Integer(_)
+                | toml::Value::Float(_)
+                | toml::Value::Datetime(_)
+                | toml::Value::Array(_)
+                | toml::Value::Table(_) => {
+                    let mut value = String::new();
+                    let ser = toml::ser::ValueSerializer::new(&mut value);
+                    serde::Serialize::serialize(val, ser)?;
+                    vec![format!("--{key}"), value]
+                }
+            })
+        })
+        .collect::<anyhow::Result<Vec<Vec<String>>>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+    parameters.insert(0, "cargo-gpu".to_owned());
+    parameters.insert(1, "build".to_owned());
+    Ok(parameters)
 }

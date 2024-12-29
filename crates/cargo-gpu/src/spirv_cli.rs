@@ -166,6 +166,7 @@ impl SpirvCli {
         if self.is_toolchain_install_consent {
             return Ok(());
         }
+        log::debug!("asking for consent to install the required toolchain");
         crossterm::terminal::enable_raw_mode()?;
         crate::user_output!("{prompt} [y/n]: ");
         let input = crossterm::event::read()?;
