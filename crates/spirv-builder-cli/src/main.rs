@@ -1,5 +1,9 @@
-//! This program builds rust-gpu shader crates and writes generated spv files
-//! into the main source repo.
+/// NB: For developing this file it will probably help to temporarily move the `"crates/spirv-builder-cli"`
+/// line from the `exclude` to `members` section of the root `Cargo.toml` file. This will allow
+/// `rust-analyzer` to run on the file. We can't permanently keep it there because each of the
+/// `spirv-builder-*` features depends on a different Rust toolchain which `cargo check/clippy`
+/// can't build all at once.
+pub mod args;
 
 #[cfg(feature = "spirv-builder-pre-cli")]
 use spirv_builder_pre_cli as spirv_builder;
@@ -8,8 +12,7 @@ use spirv_builder_pre_cli as spirv_builder;
 use spirv_builder_0_10 as spirv_builder;
 
 use spirv_builder::{CompileResult, MetadataPrintout, ModuleResult, SpirvBuilder};
-
-use spirv_builder_cli::{Args, ShaderModule};
+use spirv_builder_cli::ShaderModule;
 
 const RUSTC_NIGHTLY_CHANNEL: &str = "${CHANNEL}";
 
@@ -39,7 +42,7 @@ fn set_codegen_spirv_location(dylib_path: std::path::PathBuf) {
     std::env::set_var(env_var, path);
 }
 
-fn main() {
+pub fn main() {
     env_logger::builder().init();
 
     set_rustup_toolchain();
@@ -49,44 +52,59 @@ fn main() {
         "running spirv-builder-cli from '{}'",
         std::env::current_dir().unwrap().display()
     );
-    let args = serde_json::from_str(&args[1]).unwrap();
-    log::debug!("compiling with args: {args:#?}");
-    let Args {
-        dylib_path,
-        shader_crate,
-        shader_target,
-        path_to_target_spec,
-        no_default_features,
-        features,
-        output_dir,
-    } = args;
+    log::debug!("with args: {args:#?}");
+    let args: args::AllArgs = serde_json::from_str(&args[1]).unwrap();
+
+    let spirv_metadata = match args.build.spirv_metadata {
+        args::SpirvMetadata::None => spirv_builder::SpirvMetadata::None,
+        args::SpirvMetadata::NameVariables => spirv_builder::SpirvMetadata::NameVariables,
+        args::SpirvMetadata::Full => spirv_builder::SpirvMetadata::Full,
+    };
 
     let CompileResult {
         entry_points,
         module,
     } = {
-        let mut builder = SpirvBuilder::new(shader_crate, &shader_target)
-            .print_metadata(MetadataPrintout::None)
-            .multimodule(true);
+        let mut builder = SpirvBuilder::new(args.install.shader_crate, &args.build.target)
+            .deny_warnings(args.build.deny_warnings)
+            .release(!args.build.debug)
+            .multimodule(args.build.multimodule)
+            .spirv_metadata(spirv_metadata)
+            .relax_struct_store(args.build.relax_struct_store)
+            .relax_logical_pointer(args.build.relax_logical_pointer)
+            .relax_block_layout(args.build.relax_block_layout)
+            .uniform_buffer_standard_layout(args.build.uniform_buffer_standard_layout)
+            .scalar_block_layout(args.build.scalar_block_layout)
+            .skip_block_layout(args.build.skip_block_layout)
+            .preserve_bindings(args.build.preserve_bindings)
+            .print_metadata(spirv_builder::MetadataPrintout::None);
+
+        for capability in &args.build.capability {
+            builder = builder.capability(*capability);
+        }
+
+        for extension in &args.build.extension {
+            builder = builder.extension(extension);
+        }
 
         #[cfg(feature = "spirv-builder-pre-cli")]
         {
-            set_codegen_spirv_location(dylib_path);
+            set_codegen_spirv_location(args.install.dylib_path);
         }
 
         #[cfg(feature = "spirv-builder-0_10")]
         {
             builder = builder
-                .rustc_codegen_spirv_location(dylib_path)
-                .target_spec(path_to_target_spec);
+                .rustc_codegen_spirv_location(args.install.dylib_path)
+                .target_spec(args.build.shader_target);
 
-            if no_default_features {
+            if args.build.no_default_features {
                 log::info!("setting cargo --no-default-features");
                 builder = builder.shader_crate_default_features(false);
             }
-            if !features.is_empty() {
-                log::info!("setting --features {features:?}");
-                builder = builder.shader_crate_features(features);
+            if !args.build.features.is_empty() {
+                log::info!("setting --features {:?}", args.build.features);
+                builder = builder.shader_crate_features(args.build.features);
             }
         }
 
@@ -95,7 +113,7 @@ fn main() {
     };
     log::debug!("found entry points: {entry_points:#?}");
 
-    let dir = output_dir;
+    let dir = args.build.output_dir;
     let mut shaders = vec![];
     match module {
         ModuleResult::MultiModule(modules) => {

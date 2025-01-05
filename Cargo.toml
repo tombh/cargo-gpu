@@ -4,6 +4,9 @@ members = [
 ]
 
 exclude = [
+		# Can't be included because it depends on a specific Rust toolchain and considering that
+		# the reason it exists is to prevent Rust toolchain requirements from polluting workspaces
+		# then let's just not try to workaround it.
     "crates/spirv-builder-cli",
 
     # This currently needs to be excluded because it depends on a version of `rust-gpu` that
@@ -51,5 +54,4 @@ pub_with_shorthand = { level = "allow", priority = 1 }
 partial_pub_fields = { level = "allow", priority = 1 }
 pattern_type_mismatch = { level = "allow", priority = 1 }
 std_instead_of_alloc = { level = "allow", priority = 1 }
-
-
+arbitrary_source_item_ordering = { level = "allow", priority = 1 }

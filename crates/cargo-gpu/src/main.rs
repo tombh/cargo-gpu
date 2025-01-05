@@ -56,14 +56,14 @@ use build::Build;
 use clap::Parser as _;
 use install::Install;
 use show::Show;
-use toml::Toml;
 
 mod build;
+mod config;
 mod install;
+mod metadata;
 mod show;
 mod spirv_cli;
 mod spirv_source;
-mod toml;
 
 /// Central function to write to the user.
 #[macro_export]
@@ -115,28 +115,33 @@ fn main() {
 
 /// Wrappable "main" to catch errors.
 fn run() -> anyhow::Result<()> {
-    let args = std::env::args()
+    let env_args = std::env::args()
         .filter(|arg| {
-            // Calling cargo-gpu as the cargo subcommand "cargo gpu" passes "gpu"
-            // as the first parameter, which we want to ignore.
+            // Calling our `main()` with the cargo subcommand `cargo gpu` passes "gpu"
+            // as the first parameter, so we want to ignore it.
             arg != "gpu"
         })
         .collect::<Vec<_>>();
-    log::trace!("args: {args:?}");
-    let cli = Cli::parse_from(args);
+    log::trace!("CLI args: {env_args:#?}");
+    let cli = Cli::parse_from(env_args.clone());
 
     match cli.command {
         Command::Install(install) => {
-            log::debug!("installing with arguments: {install:#?}");
-            let (_, _) = install.run()?;
+            let shader_crate_path = install.spirv_install.shader_crate;
+            let mut command =
+                config::Config::clap_command_with_cargo_config(&shader_crate_path, env_args)?;
+            log::debug!(
+                "installing with final merged arguments: {:#?}",
+                command.install
+            );
+            let _: std::path::PathBuf = command.install.run()?;
         }
-        Command::Build(mut build) => {
-            log::debug!("building with arguments: {build:#?}");
-            build.run()?;
-        }
-        Command::Toml(toml) => {
-            log::debug!("building by toml file with arguments: {toml:#?}");
-            toml.run()?;
+        Command::Build(build) => {
+            let shader_crate_path = build.install.spirv_install.shader_crate;
+            let mut command =
+                config::Config::clap_command_with_cargo_config(&shader_crate_path, env_args)?;
+            log::debug!("building with final merged arguments: {command:#?}");
+            command.run()?;
         }
         Command::Show(show) => show.run()?,
         Command::DumpUsage => dump_full_usage_for_readme()?,
@@ -153,10 +158,6 @@ enum Command {
 
     /// Compile a shader crate to SPIR-V.
     Build(Build),
-
-    /// Compile a shader crate according to the `cargo gpu build` parameters
-    /// found in the given toml file.
-    Toml(Toml),
 
     /// Show some useful values.
     Show(Show),
@@ -217,26 +218,30 @@ fn dump_full_usage_for_readme() -> anyhow::Result<()> {
 fn write_help(
     buffer: &mut impl std::io::Write,
     cmd: &mut clap::Command,
-    _depth: usize,
+    depth: usize,
 ) -> anyhow::Result<()> {
     if cmd.get_name() == "help" {
         return Ok(());
     }
 
     let mut command = cmd.get_name().to_owned();
+    let indent_depth = if depth == 0 || depth == 1 { 0 } else { depth };
+    let indent = " ".repeat(indent_depth * 4);
     writeln!(
         buffer,
-        "\n* {}{}",
+        "\n{}* {}{}",
+        indent,
         command.remove(0).to_uppercase(),
         command
     )?;
-    writeln!(buffer)?;
-    cmd.write_long_help(buffer)?;
+
+    for line in cmd.render_long_help().to_string().lines() {
+        writeln!(buffer, "{indent}  {line}")?;
+    }
 
     for sub in cmd.get_subcommands_mut() {
         writeln!(buffer)?;
-        #[expect(clippy::used_underscore_binding, reason = "Used in recursion only")]
-        write_help(buffer, sub, _depth + 1)?;
+        write_help(buffer, sub, depth + 1)?;
     }
 
     Ok(())
@@ -258,10 +263,29 @@ fn to_dirname(text: &str) -> String {
 #[cfg(test)]
 mod test {
     use crate::cache_dir;
+    use std::io::Write as _;
 
     pub fn shader_crate_template_path() -> std::path::PathBuf {
         let project_base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         project_base.join("../shader-crate-template")
+    }
+
+    pub fn shader_crate_test_path() -> std::path::PathBuf {
+        let shader_crate_path = crate::cache_dir().unwrap().join("shader_crate");
+        copy_dir_all(shader_crate_template_path(), shader_crate_path.clone()).unwrap();
+        shader_crate_path
+    }
+
+    pub fn overwrite_shader_cargo_toml(shader_crate_path: &std::path::Path) -> std::fs::File {
+        let cargo_toml = shader_crate_path.join("Cargo.toml");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(cargo_toml)
+            .unwrap();
+        writeln!(file, "[package]").unwrap();
+        writeln!(file, "name = \"test\"").unwrap();
+        file
     }
 
     pub fn tests_teardown() {
@@ -270,5 +294,22 @@ mod test {
             return;
         }
         std::fs::remove_dir_all(cache_dir).unwrap();
+    }
+
+    pub fn copy_dir_all(
+        src: impl AsRef<std::path::Path>,
+        dst: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<()> {
+        std::fs::create_dir_all(&dst)?;
+        for maybe_entry in std::fs::read_dir(src)? {
+            let entry = maybe_entry?;
+            let ty = entry.file_type()?;
+            if ty.is_dir() {
+                copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            } else {
+                std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+            }
+        }
+        Ok(())
     }
 }

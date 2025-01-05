@@ -54,193 +54,195 @@ the usage instructions the backend and nightly Rust version are referred to as "
 
 ## Usage
 
+All the following arguments for the `build` and `install` commands can also be set in the shader crate's `Cargo.toml`
+file. In general usage that would be the recommended way to set config. See `crates/shader-crate-template/Cargo.toml`
+for an example.
+
 ````
-Commands:
-  install  Install rust-gpu compiler artifacts
-  build    Compile a shader crate to SPIR-V
-  toml     Compile a shader crate according to the `cargo gpu build` parameters found in the given toml file
-  show     Show some useful values
-  help     Print this message or the help of the given subcommand(s)
+  Commands:
+    install  Install rust-gpu compiler artifacts
+    build    Compile a shader crate to SPIR-V
+    show     Show some useful values
+    help     Print this message or the help of the given subcommand(s)
 
-Options:
-  -h, --help
-          Print help
+  Options:
+    -h, --help
+            Print help
 
-  -V, --version
-          Print version
+    -V, --version
+            Print version
 
 
 * Install
+  Install rust-gpu compiler artifacts
 
-Install rust-gpu compiler artifacts
+  Usage: cargo-gpu install [OPTIONS]
 
-Usage: cargo-gpu install [OPTIONS]
+  Options:
+        --shader-crate <SHADER_CRATE>
+            Directory containing the shader crate to compile
 
-Options:
-      --shader-crate <SHADER_CRATE>
-          Directory containing the shader crate to compile
+            [default: ./]
 
-          [default: ./]
+        --spirv-builder-source <SPIRV_BUILDER_SOURCE>
+            Source of `spirv-builder` dependency Eg: "https://github.com/Rust-GPU/rust-gpu"
 
-      --spirv-builder-source <SPIRV_BUILDER_SOURCE>
-          Source of `spirv-builder` dependency Eg: "https://github.com/Rust-GPU/rust-gpu"
+        --spirv-builder-version <SPIRV_BUILDER_VERSION>
+            Version of `spirv-builder` dependency.
+            * If `--spirv-builder-source` is not set, then this is assumed to be a crates.io semantic
+              version such as "0.9.0".
+            * If `--spirv-builder-source` is set, then this is assumed to be a Git "commitsh", such
+              as a Git commit hash or a Git tag, therefore anything that `git checkout` can resolve.
 
-      --spirv-builder-version <SPIRV_BUILDER_VERSION>
-          Version of `spirv-builder` dependency.
-          * If `--spirv-builder-source` is not set, then this is assumed to be a crates.io semantic
-            version such as "0.9.0".
-          * If `--spirv-builder-source` is set, then this is assumed to be a Git "commitsh", such
-            as a Git commit hash or a Git tag, therefore anything that `git checkout` can resolve.
+        --rust-toolchain <RUST_TOOLCHAIN>
+            Rust toolchain channel to use to build `spirv-builder`.
 
-      --rust-toolchain <RUST_TOOLCHAIN>
-          Rust toolchain channel to use to build `spirv-builder`.
+            This must be compatible with the `spirv_builder` argument as defined in the `rust-gpu` repo.
 
-          This must be compatible with the `spirv_builder` argument as defined in the `rust-gpu` repo.
+        --force-spirv-cli-rebuild
+            Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt
 
-      --force-spirv-cli-rebuild
-          Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt
+        --auto-install-rust-toolchain
+            Assume "yes" to "Install Rust toolchain: [y/n]" prompt
 
-      --auto-install-rust-toolchain
-          Assume "yes" to "Install Rust toolchain: [y/n]" prompt
-
-  -h, --help
-          Print help (see a summary with '-h')
+    -h, --help
+            Print help (see a summary with '-h')
 
 
 * Build
+  Compile a shader crate to SPIR-V
 
-Compile a shader crate to SPIR-V
+  Usage: cargo-gpu build [OPTIONS]
 
-Usage: cargo-gpu build [OPTIONS]
+  Options:
+        --shader-crate <SHADER_CRATE>
+            Directory containing the shader crate to compile
 
-Options:
-      --shader-crate <SHADER_CRATE>
-          Directory containing the shader crate to compile
+            [default: ./]
 
-          [default: ./]
+        --spirv-builder-source <SPIRV_BUILDER_SOURCE>
+            Source of `spirv-builder` dependency Eg: "https://github.com/Rust-GPU/rust-gpu"
 
-      --spirv-builder-source <SPIRV_BUILDER_SOURCE>
-          Source of `spirv-builder` dependency Eg: "https://github.com/Rust-GPU/rust-gpu"
+        --spirv-builder-version <SPIRV_BUILDER_VERSION>
+            Version of `spirv-builder` dependency.
+            * If `--spirv-builder-source` is not set, then this is assumed to be a crates.io semantic
+              version such as "0.9.0".
+            * If `--spirv-builder-source` is set, then this is assumed to be a Git "commitsh", such
+              as a Git commit hash or a Git tag, therefore anything that `git checkout` can resolve.
 
-      --spirv-builder-version <SPIRV_BUILDER_VERSION>
-          Version of `spirv-builder` dependency.
-          * If `--spirv-builder-source` is not set, then this is assumed to be a crates.io semantic
-            version such as "0.9.0".
-          * If `--spirv-builder-source` is set, then this is assumed to be a Git "commitsh", such
-            as a Git commit hash or a Git tag, therefore anything that `git checkout` can resolve.
+        --rust-toolchain <RUST_TOOLCHAIN>
+            Rust toolchain channel to use to build `spirv-builder`.
 
-      --rust-toolchain <RUST_TOOLCHAIN>
-          Rust toolchain channel to use to build `spirv-builder`.
+            This must be compatible with the `spirv_builder` argument as defined in the `rust-gpu` repo.
 
-          This must be compatible with the `spirv_builder` argument as defined in the `rust-gpu` repo.
+        --force-spirv-cli-rebuild
+            Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt
 
-      --force-spirv-cli-rebuild
-          Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt
+        --auto-install-rust-toolchain
+            Assume "yes" to "Install Rust toolchain: [y/n]" prompt
 
-      --auto-install-rust-toolchain
-          Assume "yes" to "Install Rust toolchain: [y/n]" prompt
+    -o, --output-dir <OUTPUT_DIR>
+            Path to the output directory for the compiled shaders
 
-      --shader-target <SHADER_TARGET>
-          Shader target
+            [default: ./]
 
-          [default: spirv-unknown-vulkan1.2]
+        --no-default-features
+            Set cargo default-features
 
-      --no-default-features
-          Set cargo default-features
+        --features <FEATURES>
+            Set cargo features
 
-      --features <FEATURES>
-          Set cargo features
+        --target <TARGET>
+            `rust-gpu` compile target
 
-  -o, --output-dir <OUTPUT_DIR>
-          Path to the output directory for the compiled shaders
+            [default: spirv-unknown-vulkan1.2]
 
-          [default: ./]
+        --shader-target <SHADER_TARGET>
+            Shader target
 
-  -h, --help
-          Print help (see a summary with '-h')
+            [default: spirv-unknown-vulkan1.2]
 
+        --deny-warnings
+            Treat warnings as errors during compilation
 
-* Toml
+        --debug
+            Compile shaders in debug mode
 
-Compile a shader crate according to the `cargo gpu build` parameters found in the given toml file
+        --capability <CAPABILITY>
+            Enables the provided SPIR-V capabilities. See: `impl core::str::FromStr for spirv_builder::Capability`
 
-Usage: cargo-gpu toml [PATH]
+        --extension <EXTENSION>
+            Enables the provided SPIR-V extensions. See <https://github.com/KhronosGroup/SPIRV-Registry> for all extensions
 
-Arguments:
-  [PATH]
-          Path to a workspace or package Cargo.toml file.
+        --multimodule
+            Compile one .spv file per entry point
 
-          Must include a [[workspace | package].metadata.rust-gpu.build] section where
-          arguments to `cargo gpu build` are listed.
+        --spirv-metadata <SPIRV_METADATA>
+            Set the level of metadata included in the SPIR-V binary
 
-          Path arguments like `output-dir` and `shader-manifest` must be relative to
-          the location of the Cargo.toml file.
+            [default: none]
 
-          Example:
+        --relax-struct-store
+            Allow store from one struct type to a different type with compatible layout and members
 
-          ```toml
-              [package.metadata.rust-gpu.build.spirv-builder]
-              git = "https://github.com/Rust-GPU/rust-gpu.git"
-              rev = "0da80f8"
+        --relax-logical-pointer
+            Allow allocating an object of a pointer type and returning a pointer value from a function in logical addressing mode
 
-              [package.metadata.rust-gpu.build]
-              output-dir = "shaders"
-              shader-manifest = "shaders/manifest.json"
-          ```
+        --relax-block-layout
+            Enable `VK_KHR_relaxed_block_layout` when checking standard uniform, storage buffer, and push constant layouts. This is the default when targeting Vulkan 1.1 or later
 
-          Calling `cargo gpu toml {path/to/Cargo.toml}` with a Cargo.toml that
-          contains the example above would compile the crate and place the compiled
-          `.spv` files and manifest in a directory "shaders".
+        --uniform-buffer-standard-layout
+            Enable `VK_KHR_uniform_buffer_standard_layout` when checking standard uniform buffer layouts
 
-          [default: ./Cargo.toml]
+        --scalar-block-layout
+            Enable `VK_EXT_scalar_block_layout` when checking standard uniform, storage buffer, and push constant layouts. Scalar layout rules are more permissive than relaxed block layout so in effect this will override the --relax-block-layout option
 
-Options:
-  -h, --help
-          Print help (see a summary with '-h')
+        --skip-block-layout
+            Skip checking standard uniform / storage buffer layout. Overrides any --relax-block-layout or --scalar-block-layout option
+
+        --preserve-bindings
+            Preserve unused descriptor bindings. Useful for reflection
+
+    -h, --help
+            Print help (see a summary with '-h')
 
 
 * Show
+  Show some useful values
 
-Show some useful values
+  Usage: cargo-gpu show <COMMAND>
 
-Usage: cargo-gpu show <COMMAND>
+  Commands:
+    cache-directory  Displays the location of the cache directory
+    spirv-source     The source location of spirv-std
+    help             Print this message or the help of the given subcommand(s)
 
-Commands:
-  cache-directory  Displays the location of the cache directory
-  spirv-source     The source location of spirv-std
-  help             Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help
-          Print help
-
-
-    * Cache-directory
-
-    Displays the location of the cache directory
-
-    Usage: cargo-gpu show cache-directory
-
-    Options:
-      -h, --help
-              Print help
+  Options:
+    -h, --help
+            Print help
 
 
-    * Spirv-source
+        * Cache-directory
+          Displays the location of the cache directory
 
-    The source location of spirv-std
+          Usage: cargo-gpu show cache-directory
 
-    Usage: cargo-gpu show spirv-source [OPTIONS]
-
-    Options:
-          --shader-crate <SHADER_CRATE>
-              The location of the shader-crate to inspect to determine its spirv-std dependency
-
-              [default: ./]
-
-      -h, --help
-              Print help
+          Options:
+            -h, --help
+                    Print help
 
 
+        * Spirv-source
+          The source location of spirv-std
 
+          Usage: cargo-gpu show spirv-source [OPTIONS]
+
+          Options:
+                --shader-crate <SHADER_CRATE>
+                    The location of the shader-crate to inspect to determine its spirv-std dependency
+
+                    [default: ./]
+
+            -h, --help
+                    Print help
 ````

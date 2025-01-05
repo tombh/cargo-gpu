@@ -1,72 +1,62 @@
 //! `cargo gpu build`, analogous to `cargo build`
 
 use anyhow::Context as _;
-use clap::Parser;
-use spirv_builder_cli::{Linkage, ShaderModule};
 
 use crate::{install::Install, target_spec_dir};
+use spirv_builder_cli::{args::BuildArgs, Linkage, ShaderModule};
 
 /// `cargo build` subcommands
-#[derive(Parser, Debug)]
+#[derive(clap::Parser, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Build {
-    /// Install the `rust-gpu` compiler and components
+    /// CLI args for install the `rust-gpu` compiler and components
     #[clap(flatten)]
     pub install: Install,
 
-    /// Shader target.
-    #[clap(long, default_value = "spirv-unknown-vulkan1.2")]
-    shader_target: String,
-
-    /// Set cargo default-features.
-    #[clap(long)]
-    no_default_features: bool,
-
-    /// Set cargo features.
-    #[clap(long)]
-    features: Vec<String>,
-
-    /// Path to the output directory for the compiled shaders.
-    #[clap(long, short, default_value = "./")]
-    pub output_dir: std::path::PathBuf,
+    /// CLI args for configuring the build of the shader
+    #[clap(flatten)]
+    pub build_args: BuildArgs,
 }
 
 impl Build {
     /// Entrypoint
     pub fn run(&mut self) -> anyhow::Result<()> {
-        let (dylib_path, spirv_builder_cli_path) = self.install.run()?;
+        let spirv_builder_cli_path = self.install.run()?;
 
         // Ensure the shader output dir exists
-        log::debug!("ensuring output-dir '{}' exists", self.output_dir.display());
-        std::fs::create_dir_all(&self.output_dir)?;
-        let canonicalized = self.output_dir.canonicalize()?;
+        log::debug!(
+            "ensuring output-dir '{}' exists",
+            self.build_args.output_dir.display()
+        );
+        std::fs::create_dir_all(&self.build_args.output_dir)?;
+        let canonicalized = self.build_args.output_dir.canonicalize()?;
         log::debug!("canonicalized output dir: {canonicalized:?}");
-        self.output_dir = canonicalized;
+        self.build_args.output_dir = canonicalized;
 
         // Ensure the shader crate exists
-        self.install.shader_crate = self.install.shader_crate.canonicalize()?;
+        self.install.spirv_install.shader_crate =
+            self.install.spirv_install.shader_crate.canonicalize()?;
         anyhow::ensure!(
-            self.install.shader_crate.exists(),
+            self.install.spirv_install.shader_crate.exists(),
             "shader crate '{}' does not exist. (Current dir is '{}')",
-            self.install.shader_crate.display(),
+            self.install.spirv_install.shader_crate.display(),
             std::env::current_dir()?.display()
         );
 
-        let spirv_builder_args = spirv_builder_cli::Args {
-            dylib_path,
-            shader_crate: self.install.shader_crate.clone(),
-            shader_target: self.shader_target.clone(),
-            path_to_target_spec: target_spec_dir()?.join(format!("{}.json", self.shader_target)),
-            no_default_features: self.no_default_features,
-            features: self.features.clone(),
-            output_dir: self.output_dir.clone(),
-        };
+        self.build_args.shader_target = target_spec_dir()?
+            .join(format!("{}.json", self.build_args.shader_target))
+            .display()
+            .to_string();
 
-        let arg = serde_json::to_string_pretty(&spirv_builder_args)?;
+        let args_as_json = serde_json::json!({
+            "install": self.install.spirv_install,
+            "build": self.build_args
+        });
+        let arg = serde_json::to_string_pretty(&args_as_json)?;
         log::info!("using spirv-builder-cli arg: {arg}");
 
         crate::user_output!(
             "Running `spirv-builder-cli` to compile shader at {}...\n",
-            self.install.shader_crate.display()
+            self.install.spirv_install.shader_crate.display()
         );
 
         // Call spirv-builder-cli to compile the shaders.
@@ -77,7 +67,7 @@ impl Build {
             .output()?;
         anyhow::ensure!(output.status.success(), "build failed");
 
-        let spirv_manifest = self.output_dir.join("spirv-manifest.json");
+        let spirv_manifest = self.build_args.output_dir.join("spirv-manifest.json");
         if spirv_manifest.is_file() {
             log::debug!(
                 "successfully built shaders, raw manifest is at '{}'",
@@ -100,21 +90,22 @@ impl Build {
                  }|
                  -> anyhow::Result<Linkage> {
                     use relative_path::PathExt as _;
-                    let path = self.output_dir.join(
+                    let path = self.build_args.output_dir.join(
                         filepath
                             .file_name()
                             .context("Couldn't parse file name from shader module path")?,
                     );
                     std::fs::copy(&filepath, &path)?;
-                    let path_relative_to_shader_crate =
-                        path.relative_to(&self.install.shader_crate)?.to_path("");
+                    let path_relative_to_shader_crate = path
+                        .relative_to(&self.install.spirv_install.shader_crate)?
+                        .to_path("");
                     Ok(Linkage::new(entry, path_relative_to_shader_crate))
                 },
             )
             .collect::<anyhow::Result<Vec<Linkage>>>()?;
 
         // Write the shader manifest json file
-        let manifest_path = self.output_dir.join("manifest.json");
+        let manifest_path = self.build_args.output_dir.join("manifest.json");
         // Sort the contents so the output is deterministic
         linkage.sort();
         let json = serde_json::to_string_pretty(&linkage)?;
@@ -147,9 +138,9 @@ impl Build {
 
 #[cfg(test)]
 mod test {
-    use crate::{Cli, Command};
+    use clap::Parser as _;
 
-    use super::*;
+    use crate::{Cli, Command};
 
     #[test_log::test]
     fn builder_from_params() {
@@ -170,8 +161,8 @@ mod test {
             command: Command::Build(build),
         } = Cli::parse_from(args)
         {
-            assert_eq!(shader_crate_path, build.install.shader_crate);
-            assert_eq!(output_dir, build.output_dir);
+            assert_eq!(shader_crate_path, build.install.spirv_install.shader_crate);
+            assert_eq!(output_dir, build.build_args.output_dir);
 
             // TODO:
             // For some reason running a full build (`build.run()`) inside tests fails on Windows.

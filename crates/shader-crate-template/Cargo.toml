@@ -2,7 +2,7 @@
 name = "rust-gpu-shader-crate-template"
 version = "0.1.0"
 edition = "2021"
-
+ 
 [lib]
 crate-type = ["rlib", "cdylib"]
 
@@ -15,8 +15,77 @@ spirv-std = { git = "https://github.com/Rust-GPU/rust-gpu", rev = "82a0f69" }
 [target.'cfg(target_arch = "spirv")'.dependencies]
 glam = { version = "0.29", default-features = false, features = ["libm"] }
 
-
 # Dependencies for CPU code
 [target.'cfg(not(target_arch = "spirv"))'.dependencies]
 glam = { version = "0.29", features = ["std"] }
 
+[package.metadata.rust-gpu.build]
+# Where to output the compiled shader. Defaults to where `cargo gpu` is called from.
+# TODO: Should it default to the root of the shader crate?
+output-dir = "./"
+# Set shader crate's cargo default-features
+no_default_features = false
+# Set shader crate's cargo features.  
+features = []
+# The compile target.
+# TODO: `cargo gpu show targets` for all available options.
+shader-target = "spirv-unknown-vulkan1.2"
+# Treat warnings as errors during compilation.
+deny-warnings = false
+# Compile shaders in debug mode.
+debug = false
+# Enables the provided SPIR-V capabilities.
+# See: `impl core::str::FromStr for spirv_builder::Capability`.
+# TODO: `cargo gpu show capabilities` for all available options.
+capability = []
+# Enables the provided SPIR-V extensions.
+# See https://github.com/KhronosGroup/SPIRV-Registry for all extensions
+# TODO: `cargo gpu show extensions` for all available options.
+extension = []
+# Compile one .spv file per shader entry point.
+multimodule = false
+# Set the level of metadata included in the SPIR-V binary.
+# Options: "None", "NameVariables", "Full".
+spirv-metadata = "None"
+# Allow store from one struct type to a different type with compatible layout and members.
+relax-struct-store = false
+# Allow allocating an object of a pointer type and returning a pointer value from a function
+# in logical addressing mode.
+relax-logical-pointer =  false
+# Enable VK_KHR_relaxed_block_layout when checking standard uniform, storage buffer, and push
+# constant layouts.
+# This is the default when targeting Vulkan 1.1 or later.
+relax-block-layout = false
+# Enable VK_KHR_uniform_buffer_standard_layout when checking standard uniform buffer layouts.
+uniform-buffer-standard-layout = false
+# Enable `VK_EXT_scalar_block_layout` when checking standard uniform, storage buffer, and push
+# constant layouts.
+# Scalar layout rules are more permissive than relaxed block layout so in effect this will
+# override the `relax_block_layout` option.
+scalar-block-layout = false
+# Skip checking standard uniform/storage buffer layout.
+# Overrides `relax_block_layout` and `scalar_block_layout`.
+skip-block-layout = false
+# Preserve unused descriptor bindings. Useful for reflection.
+preserve-bindings = false
+
+[package.metadata.rust-gpu.install]
+# Source of `spirv-builder` dependency
+# Eg: "https://github.com/Rust-GPU/rust-gpu"
+# spirv_builder_source = ""
+
+# Version of `spirv-builder` dependency.
+#  * If `--spirv-builder-source` is not set, then this is assumed to be a crates.io semantic
+#    version such as "0.9.0".
+#  * If `--spirv-builder-source` is set, then this is assumed to be a Git "commitsh", such
+#    as a Git commit hash or a Git tag, therefore anything that `git checkout` can resolve.
+# spirv_builder_version = ""
+
+# Rust toolchain channel to use to build `spirv-builder`.
+# Eg: "nightly-2024-04-24"
+# rust_toolchain = ""
+
+# Whether to assume "yes" to the "Install Rust toolchain: [y/n]" prompt.
+auto-install-rust-toolchain = false
+# Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
+force-spirv-cli-rebuild = false

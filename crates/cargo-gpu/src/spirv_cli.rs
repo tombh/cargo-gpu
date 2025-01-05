@@ -105,7 +105,7 @@ impl SpirvCli {
         } else {
             let message = format!("Rust {} with `rustup`", self.channel);
             self.get_consent_for_toolchain_install(format!("Install {message}").as_ref())?;
-            crate::user_output!("Installing {message}");
+            crate::user_output!("Installing {message}\n");
 
             let output_toolchain_add = std::process::Command::new("rustup")
                 .args(["toolchain", "add"])
@@ -143,7 +143,7 @@ impl SpirvCli {
         } else {
             let message = "toolchain components (rust-src, rustc-dev, llvm-tools) with `rustup`";
             self.get_consent_for_toolchain_install(format!("Install {message}").as_ref())?;
-            crate::user_output!("Installing {message}");
+            crate::user_output!("Installing {message}\n");
 
             let output_component_add = std::process::Command::new("rustup")
                 .args(["component", "add", "--toolchain"])
@@ -193,6 +193,8 @@ mod test {
     #[test_log::test]
     fn cached_checkout_dir_sanity() {
         let shader_template_path = crate::test::shader_crate_template_path();
+        // TODO: This downloads the `rust-gpu` repo which slows the test down. Can we avoid that
+        // just to get the sanity check?
         let spirv = SpirvCli::new(&shader_template_path, None, None, None, true).unwrap();
         let dir = spirv.cached_checkout_path().unwrap();
         let name = dir

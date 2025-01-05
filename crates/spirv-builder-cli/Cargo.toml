@@ -3,19 +3,14 @@ name = "spirv-builder-cli"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-path = "src/lib.rs"
-
-[[bin]]
-name = "spirv-builder-cli"
-path = "src/main.rs"
-
 [dependencies]
+clap = { version = "4.4.8", features = ["derive"] }
 env_home = "0.1.0"
 env_logger = "0.10"
 log = "0.4"
 serde = "1.0.214"
 serde_json = "1.0.132"
+spirv = { version = "0.3.0", features = [ "deserialize", "serialize" ] }
 toml = "0.8.19"
 
 [features]
@@ -41,7 +36,7 @@ package = "spirv-builder"
 optional = true
 git = "https://github.com/Rust-GPU/rust-gpu" # ${AUTO-REPLACE-SOURCE}
 rev = "60dcb82" # ${AUTO-REPLACE-VERSION}
-
+ 
 [lints.rust]
 # This crate is most often run by end users compiling their shaders so it's not so relevant
 # for them to see warnings.
