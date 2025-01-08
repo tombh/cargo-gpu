@@ -17,6 +17,8 @@ pub enum Info {
     CacheDirectory,
     /// The source location of spirv-std
     SpirvSource(SpirvSourceDep),
+    /// The git commitsh of this cli tool.
+    Commitsh,
 }
 
 /// `cargo gpu show`
@@ -47,6 +49,9 @@ impl Show {
                 {
                     println!("{rust_gpu_source}\n");
                 }
+            }
+            Info::Commitsh => {
+                println!("{}", std::env!("GIT_HASH"));
             }
         }
 
