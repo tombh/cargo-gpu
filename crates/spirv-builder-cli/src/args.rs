@@ -54,7 +54,7 @@ pub struct BuildArgs {
     pub debug: bool,
 
     /// Enables the provided SPIR-V capabilities.
-    /// See: `impl core::str::FromStr for spirv_builder::Capability`
+    /// See: `cargo gpu show capabilities`
     #[arg(long, value_parser=Self::spirv_capability)]
     pub capability: Vec<spirv::Capability>,
 
