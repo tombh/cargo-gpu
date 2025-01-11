@@ -40,12 +40,14 @@ optional = true
 
 [dependencies.spirv-builder-pre-cli]
 package = "spirv-builder"
+features = [ "watch" ]
 optional = true
 git = "https://github.com/Rust-GPU/rust-gpu" # ${AUTO-REPLACE-SOURCE}
 rev = "4c633aec" # ${AUTO-REPLACE-VERSION}
 
 [dependencies.spirv-builder-0_10]
 package = "spirv-builder"
+features = [ "watch" ]
 optional = true
 git = "https://github.com/Rust-GPU/rust-gpu" # ${AUTO-REPLACE-SOURCE}
 rev = "60dcb82" # ${AUTO-REPLACE-VERSION}

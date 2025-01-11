@@ -141,7 +141,16 @@ fn run() -> anyhow::Result<()> {
             let mut command =
                 config::Config::clap_command_with_cargo_config(&shader_crate_path, env_args)?;
             log::debug!("building with final merged arguments: {command:#?}");
-            command.run()?;
+
+            if command.build_args.watch {
+                //  When watching, do one normal run to setup the `manifest.json` file.
+                command.build_args.watch = false;
+                command.run()?;
+                command.build_args.watch = true;
+                command.run()?;
+            } else {
+                command.run()?;
+            }
         }
         Command::Show(show) => show.run()?,
         Command::DumpUsage => dump_full_usage_for_readme()?,

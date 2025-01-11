@@ -6,7 +6,7 @@ use spirv_0_3 as spirv;
 
 use std::str::FromStr as _;
 
-#[derive(clap::Parser, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(clap::Parser, Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct AllArgs {
     #[clap(flatten)]
     pub build: BuildArgs,
@@ -26,11 +26,15 @@ pub enum SpirvMetadata {
     Full,
 }
 
-#[derive(clap::Parser, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(clap::Parser, Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct BuildArgs {
     /// Path to the output directory for the compiled shaders.
     #[clap(long, short, default_value = "./")]
     pub output_dir: std::path::PathBuf,
+
+    /// Watch the shader crate directory and automatically recompile on changes.
+    #[clap(long, short, action)]
+    pub watch: bool,
 
     /// Set shader crate's cargo default-features.
     #[clap(long)]
@@ -133,7 +137,7 @@ impl BuildArgs {
     }
 }
 
-#[derive(clap::Parser, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(clap::Parser, Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct InstallArgs {
     #[clap(long, hide(true), default_value = "INTERNALLY_SET")]
     pub dylib_path: std::path::PathBuf,
