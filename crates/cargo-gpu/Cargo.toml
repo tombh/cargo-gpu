@@ -11,7 +11,7 @@ build = "build.rs"
 
 [dependencies]
 anyhow.workspace = true
-spirv-builder-cli = { path = "../spirv-builder-cli", default-features = false }
+spirv-builder-cli = { path = "../spirv-builder-cli", default-features = false, features = ["rspirv-latest"] }
 clap.workspace = true
 directories.workspace = true
 env_logger.workspace = true

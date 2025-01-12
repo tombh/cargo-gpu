@@ -1,3 +1,9 @@
+#[cfg(feature = "spirv-builder-pre-cli")]
+use spirv_0_2 as spirv;
+
+#[cfg(any(feature = "spirv-builder-0_10", feature = "rspirv-latest"))]
+use spirv_0_3 as spirv;
+
 use std::str::FromStr as _;
 
 #[derive(clap::Parser, Debug, serde::Deserialize, serde::Serialize)]
