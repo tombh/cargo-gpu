@@ -1,4 +1,10 @@
-//! Wire types for `cargo-gpu` and `spirv-builder-cli`.
+pub mod args;
+
+#[cfg(feature = "spirv-builder-pre-cli")]
+pub use spirv_0_2 as spirv;
+
+#[cfg(any(feature = "spirv-builder-0_10", feature = "rspirv-latest"))]
+pub use spirv_0_3 as spirv;
 
 /// Shader source and entry point that can be used to create shader linkage.
 #[derive(serde::Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -26,31 +32,6 @@ impl Linkage {
     pub fn fn_name(&self) -> &str {
         self.entry_point.split("::").last().unwrap()
     }
-}
-
-/// `spirv-builder-cli` command line interface.
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Args {
-    /// Path to rustc_codegen_spirv dylib.
-    pub dylib_path: std::path::PathBuf,
-
-    /// Directory containing the shader crate to compile.
-    pub shader_crate: std::path::PathBuf,
-
-    /// Shader target.
-    pub shader_target: String,
-
-    /// Path to target spec file.
-    pub path_to_target_spec: std::path::PathBuf,
-
-    /// Set cargo default-features.
-    pub no_default_features: bool,
-
-    /// Set cargo features.
-    pub features: Vec<String>,
-
-    /// Path to the output directory for the compiled shaders.
-    pub output_dir: std::path::PathBuf,
 }
 
 /// A built shader entry-point, used in `spirv-builder-cli` to generate

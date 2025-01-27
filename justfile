@@ -1,10 +1,6 @@
 [group: 'ci']
 build-shader-template:
-  cargo install --path crates/cargo-gpu
-  cargo gpu install --shader-crate crates/shader-crate-template --auto-install-rust-toolchain
-  cargo gpu build --shader-crate crates/shader-crate-template --output-dir test-shaders
-  ls -lah test-shaders
-  cat test-shaders/manifest.json
+  scripts/build_shader_template.sh
 
 [group: 'ci']
 setup-lints:

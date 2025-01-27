@@ -19,6 +19,8 @@ pub enum Info {
     SpirvSource(SpirvSourceDep),
     /// The git commitsh of this cli tool.
     Commitsh,
+    /// All the available SPIR-V capabilities that can be set with `--capability`
+    Capabilities,
 }
 
 /// `cargo gpu show`
@@ -53,8 +55,27 @@ impl Show {
             Info::Commitsh => {
                 println!("{}", std::env!("GIT_HASH"));
             }
+            Info::Capabilities => {
+                println!("All available options to the `cargo gpu build --capability` argument:");
+                #[expect(
+                    clippy::use_debug,
+                    reason = "It's easier to just use `Debug` formatting than implementing `Display`"
+                )]
+                for capability in Self::capability_variants_iter() {
+                    println!("  {capability:?}");
+                }
+            }
         }
 
         Ok(())
+    }
+
+    /// Iterator over all `Capability` variants.
+    fn capability_variants_iter() -> impl Iterator<Item = spirv_builder_cli::spirv::Capability> {
+        // Since spirv::Capability is repr(u32) we can iterate over
+        // u32s until some maximum
+        #[expect(clippy::as_conversions, reason = "We know all variants are repr(u32)")]
+        let last_capability = spirv_builder_cli::spirv::Capability::CacheControlsINTEL as u32;
+        (0..=last_capability).filter_map(spirv_builder_cli::spirv::Capability::from_u32)
     }
 }

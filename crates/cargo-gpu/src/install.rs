@@ -4,6 +4,7 @@ use std::io::Write as _;
 use anyhow::Context as _;
 
 use crate::{cache_dir, spirv_cli::SpirvCli, spirv_source::SpirvSource, target_spec_dir};
+use spirv_builder_cli::args::InstallArgs;
 
 /// These are the files needed to create the dedicated, per-shader `rust-gpu` builder create.
 const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
@@ -18,6 +19,10 @@ const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
     (
         "src/lib.rs",
         include_str!("../../spirv-builder-cli/src/lib.rs"),
+    ),
+    (
+        "src/args.rs",
+        include_str!("../../spirv-builder-cli/src/args.rs"),
     ),
 ];
 
@@ -86,42 +91,11 @@ const TARGET_SPECS: &[(&str, &str)] = &[
 ];
 
 /// `cargo gpu install`
-#[derive(clap::Parser, Debug)]
+#[derive(clap::Parser, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Install {
-    /// Directory containing the shader crate to compile.
-    #[clap(long, default_value = "./")]
-    pub shader_crate: std::path::PathBuf,
-
-    #[expect(
-        clippy::doc_markdown,
-        reason = "The URL should appear literally like this. But Clippy wants it to be a in markdown clickable link"
-    )]
-    /// Source of `spirv-builder` dependency
-    /// Eg: "https://github.com/Rust-GPU/rust-gpu"
-    #[clap(long)]
-    spirv_builder_source: Option<String>,
-
-    /// Version of `spirv-builder` dependency.
-    /// * If `--spirv-builder-source` is not set, then this is assumed to be a crates.io semantic
-    ///   version such as "0.9.0".
-    /// * If `--spirv-builder-source` is set, then this is assumed to be a Git "commitsh", such
-    ///   as a Git commit hash or a Git tag, therefore anything that `git checkout` can resolve.
-    #[clap(long, verbatim_doc_comment)]
-    spirv_builder_version: Option<String>,
-
-    /// Rust toolchain channel to use to build `spirv-builder`.
-    ///
-    /// This must be compatible with the `spirv_builder` argument as defined in the `rust-gpu` repo.
-    #[clap(long)]
-    rust_toolchain: Option<String>,
-
-    /// Force `spirv-builder-cli` and `rustc_codegen_spirv` to be rebuilt.
-    #[clap(long)]
-    force_spirv_cli_rebuild: bool,
-
-    /// Assume "yes" to "Install Rust toolchain: [y/n]" prompt.
-    #[clap(long, action)]
-    auto_install_rust_toolchain: bool,
+    /// CLI arguments for installing the Rust toolchain and components
+    #[clap(flatten)]
+    pub spirv_install: InstallArgs,
 }
 
 impl Install {
@@ -129,16 +103,16 @@ impl Install {
     fn spirv_cli(&self, shader_crate_path: &std::path::PathBuf) -> anyhow::Result<SpirvCli> {
         SpirvCli::new(
             shader_crate_path,
-            self.spirv_builder_source.clone(),
-            self.spirv_builder_version.clone(),
-            self.rust_toolchain.clone(),
-            self.auto_install_rust_toolchain,
+            self.spirv_install.spirv_builder_source.clone(),
+            self.spirv_install.spirv_builder_version.clone(),
+            self.spirv_install.rust_toolchain.clone(),
+            self.spirv_install.auto_install_rust_toolchain,
         )
     }
 
     /// Create the `spirv-builder-cli` crate.
     fn write_source_files(&self) -> anyhow::Result<()> {
-        let spirv_cli = self.spirv_cli(&self.shader_crate)?;
+        let spirv_cli = self.spirv_cli(&self.spirv_install.shader_crate)?;
         let checkout = spirv_cli.cached_checkout_path()?;
         std::fs::create_dir_all(checkout.join("src"))?;
         for (filename, contents) in SPIRV_BUILDER_FILES {
@@ -187,7 +161,7 @@ impl Install {
     fn write_target_spec_files(&self) -> anyhow::Result<()> {
         for (filename, contents) in TARGET_SPECS {
             let path = target_spec_dir()?.join(filename);
-            if !path.is_file() || self.force_spirv_cli_rebuild {
+            if !path.is_file() || self.spirv_install.force_spirv_cli_rebuild {
                 let mut file = std::fs::File::create(&path)?;
                 file.write_all(contents.as_bytes())?;
             }
@@ -196,7 +170,7 @@ impl Install {
     }
 
     /// Install the binary pair and return the paths, (dylib, cli).
-    pub fn run(&self) -> anyhow::Result<(std::path::PathBuf, std::path::PathBuf)> {
+    pub fn run(&mut self) -> anyhow::Result<std::path::PathBuf> {
         // Ensure the cache dir exists
         let cache_dir = cache_dir()?;
         log::info!("cache directory is '{}'", cache_dir.display());
@@ -204,7 +178,7 @@ impl Install {
             format!("could not create cache directory '{}'", cache_dir.display())
         })?;
 
-        let spirv_version = self.spirv_cli(&self.shader_crate)?;
+        let spirv_version = self.spirv_cli(&self.spirv_install.shader_crate)?;
         spirv_version.ensure_toolchain_and_components_exist()?;
 
         let checkout = spirv_version.cached_checkout_path()?;
@@ -225,7 +199,10 @@ impl Install {
             );
         }
 
-        if dest_dylib_path.is_file() && dest_cli_path.is_file() && !self.force_spirv_cli_rebuild {
+        if dest_dylib_path.is_file()
+            && dest_cli_path.is_file()
+            && !self.spirv_install.force_spirv_cli_rebuild
+        {
             log::info!("...and so we are aborting the install step.");
         } else {
             log::debug!(
@@ -237,7 +214,7 @@ impl Install {
 
             crate::user_output!(
                 "Compiling shader-specific `spirv-builder-cli` for {}\n",
-                self.shader_crate.display()
+                self.spirv_install.shader_crate.display()
             );
 
             let mut command = std::process::Command::new("cargo");
@@ -286,7 +263,10 @@ impl Install {
                 anyhow::bail!("spirv-builder-cli build failed");
             }
         }
-        Ok((dest_dylib_path, dest_cli_path))
+
+        self.spirv_install.dylib_path = dest_dylib_path;
+
+        Ok(dest_cli_path)
     }
 
     /// The `spirv-builder` crate from the main `rust-gpu` repo hasn't always been setup to
