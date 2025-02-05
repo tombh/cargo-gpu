@@ -13,6 +13,10 @@ const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
         include_str!("../../spirv-builder-cli/Cargo.toml"),
     ),
     (
+        "Cargo.lock",
+        include_str!("../../spirv-builder-cli/Cargo.lock"),
+    ),
+    (
         "src/main.rs",
         include_str!("../../spirv-builder-cli/src/main.rs"),
     ),
