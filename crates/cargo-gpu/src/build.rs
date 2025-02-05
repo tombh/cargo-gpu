@@ -1,6 +1,7 @@
 //! `cargo gpu build`, analogous to `cargo build`
 
 use anyhow::Context as _;
+use std::io::Write as _;
 
 use crate::{install::Install, target_spec_dir};
 use spirv_builder_cli::{args::BuildArgs, Linkage, ShaderModule};
@@ -42,10 +43,12 @@ impl Build {
             std::env::current_dir()?.display()
         );
 
-        self.build_args.shader_target = target_spec_dir()?
-            .join(format!("{}.json", self.build_args.shader_target))
-            .display()
-            .to_string();
+        if !self.build_args.watch {
+            self.build_args.shader_target = target_spec_dir()?
+                .join(format!("{}.json", self.build_args.shader_target))
+                .display()
+                .to_string();
+        }
 
         let args_as_json = serde_json::json!({
             "install": self.install.spirv_install,
@@ -54,10 +57,12 @@ impl Build {
         let arg = serde_json::to_string_pretty(&args_as_json)?;
         log::info!("using spirv-builder-cli arg: {arg}");
 
-        crate::user_output!(
-            "Running `spirv-builder-cli` to compile shader at {}...\n",
-            self.install.spirv_install.shader_crate.display()
-        );
+        if !self.build_args.watch {
+            crate::user_output!(
+                "Running `spirv-builder-cli` to compile shader at {}...\n",
+                self.install.spirv_install.shader_crate.display()
+            );
+        }
 
         // Call spirv-builder-cli to compile the shaders.
         let output = std::process::Command::new(spirv_builder_cli_path)
