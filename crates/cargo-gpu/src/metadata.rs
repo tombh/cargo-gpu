@@ -47,12 +47,22 @@ impl Metadata {
         let mut metadata = crate::config::Config::defaults_as_json()?;
         crate::config::Config::json_merge(
             &mut metadata,
-            Self::get_workspace_metadata(cargo_json),
+            {
+                log::debug!("looking for workspace metadata");
+                let ws_meta = Self::get_workspace_metadata(cargo_json);
+                log::trace!("workspace_metadata: {ws_meta:#?}");
+                ws_meta
+            },
             None,
         )?;
         crate::config::Config::json_merge(
             &mut metadata,
-            Self::get_crate_metadata(cargo_json, path)?,
+            {
+                log::debug!("looking for crate metadata");
+                let crate_meta = Self::get_crate_metadata(cargo_json, path)?;
+                log::trace!("crate_metadata: {crate_meta:#?}");
+                crate_meta
+            },
             None,
         )?;
 
@@ -118,6 +128,7 @@ impl Metadata {
                     let manifest_path = manifest_path_dirty.replace(r"\\?\", "");
                     log::debug!("Matching shader crate path with manifest path: {shader_crate_path} == {manifest_path}?");
                     if manifest_path == shader_crate_path {
+                        log::debug!("...matches! Getting metadata");
                         let mut metadata = package
                             .pointer("/metadata/rust-gpu")
                             .unwrap_or(&empty_json_object)

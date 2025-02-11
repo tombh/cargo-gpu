@@ -104,9 +104,10 @@ impl Config {
             }
             (left, right) => {
                 if let Some(pointer) = maybe_pointer {
-                    let default = defaults
-                        .pointer(pointer)
-                        .context(format!("Config `{pointer}` not found in defaults"))?;
+                    let default = defaults.pointer(pointer).context(format!(
+                        "Configuration option with path `{pointer}` was not found in the default configuration, \
+                        which is:\ndefaults: {defaults:#?}"
+                    ))?;
                     if &right != default {
                         // Only overwrite if the new value differs from the defaults.
                         *left = right;

@@ -221,25 +221,35 @@ impl Install {
                 self.spirv_install.shader_crate.display()
             );
 
-            let mut command = std::process::Command::new("cargo");
-            command
+            // Run a `cargo update` just in case the cached Cargo.lock we copied over
+            // is a bit behind what's in rust-gpu
+            let mut update_command = std::process::Command::new("cargo");
+            update_command.current_dir(&checkout).arg("update");
+            let update_output = update_command
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .output()?;
+            anyhow::ensure!(update_output.status.success(), "...cargo update error!");
+
+            let mut build_command = std::process::Command::new("cargo");
+            build_command
                 .current_dir(&checkout)
                 .arg(format!("+{}", spirv_version.channel))
                 .args(["build", "--release"])
                 .args(["--no-default-features"]);
 
-            command.args([
+            build_command.args([
                 "--features",
                 &Self::get_required_spirv_builder_version(spirv_version.date)?,
             ]);
 
-            log::debug!("building artifacts with `{:?}`", command);
+            log::debug!("building artifacts with `{:?}`", build_command);
 
-            let output = command
+            let build_output = build_command
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
                 .output()?;
-            anyhow::ensure!(output.status.success(), "...build error!");
+            anyhow::ensure!(build_output.status.success(), "...build error!");
 
             if dylib_path.is_file() {
                 log::info!("successfully built {}", dylib_path.display());
