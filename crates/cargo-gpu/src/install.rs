@@ -221,16 +221,6 @@ impl Install {
                 self.spirv_install.shader_crate.display()
             );
 
-            // Run a `cargo update` just in case the cached Cargo.lock we copied over
-            // is a bit behind what's in rust-gpu
-            let mut update_command = std::process::Command::new("cargo");
-            update_command.current_dir(&checkout).arg("update");
-            let update_output = update_command
-                .stdout(std::process::Stdio::inherit())
-                .stderr(std::process::Stdio::inherit())
-                .output()?;
-            anyhow::ensure!(update_output.status.success(), "...cargo update error!");
-
             let mut build_command = std::process::Command::new("cargo");
             build_command
                 .current_dir(&checkout)
