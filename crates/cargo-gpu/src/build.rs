@@ -110,10 +110,12 @@ impl Build {
                         path.display(),
                         self.install.spirv_install.shader_crate.display()
                     );
-                    let path_relative_to_shader_crate = path
-                        .relative_to(&self.install.spirv_install.shader_crate)?
-                        .to_path("");
-                    Ok(Linkage::new(entry, path_relative_to_shader_crate))
+                    let spv_path = path
+                        .relative_to(&self.install.spirv_install.shader_crate)
+                        .map_or(path, |path_relative_to_shader_crate| {
+                            path_relative_to_shader_crate.to_path("")
+                        });
+                    Ok(Linkage::new(entry, spv_path))
                 },
             )
             .collect::<anyhow::Result<Vec<Linkage>>>()?;
