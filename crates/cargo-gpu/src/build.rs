@@ -173,7 +173,7 @@ mod test {
             // For some reason running a full build (`build.run()`) inside tests fails on Windows.
             // The error is in the `build.rs` step of compiling `spirv-tools-sys`. It is not clear
             // from the logged error what the problem is. For now we'll just run a full build
-            // outside the tests environment, see `justfile`'s `build-shader-template`.
+            // outside the tests environment, see `xtask`'s `test-build`.
         } else {
             panic!("was not a build command");
         }
