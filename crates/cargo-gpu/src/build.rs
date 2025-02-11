@@ -1,3 +1,5 @@
+#![allow(clippy::shadow_reuse, reason = "let's not be silly")]
+#![allow(clippy::unwrap_used, reason = "this is basically a test")]
 //! `cargo gpu build`, analogous to `cargo build`
 
 use anyhow::Context as _;

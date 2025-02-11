@@ -1,7 +1,10 @@
 //! Project/repository utilities.
+#![allow(clippy::shadow_reuse, reason = "sometimes its nice")]
+#![allow(clippy::unwrap_used, reason = "sometimes its good")]
+#![allow(clippy::unwrap_in_result, reason = "sometimes that's what you want")]
 
-use anyhow::Context;
-use clap::Parser;
+use anyhow::Context as _;
+use clap::Parser as _;
 
 /// Our xtask commands.
 #[derive(Debug, clap::Parser)]
@@ -27,8 +30,11 @@ fn cmd(args: impl IntoIterator<Item = impl AsRef<str>>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Overwrites a toml file's output-dir field, and reverts that on drop.
 struct ShaderCrateTemplateCargoTomlWriter {
+    /// Original string
     original_shader_crate_template_str: String,
+    /// Parsed toml table
     table: toml::Table,
 }
 
@@ -40,8 +46,10 @@ impl Drop for ShaderCrateTemplateCargoTomlWriter {
 }
 
 impl ShaderCrateTemplateCargoTomlWriter {
+    /// Path to the Cargo.toml
     const PATH: &str = "crates/shader-crate-template/Cargo.toml";
 
+    /// Create a new one
     fn new() -> Self {
         let original_shader_crate_template_str = std::fs::read_to_string(Self::PATH).unwrap();
         let table = toml::from_str::<toml::Table>(&original_shader_crate_template_str).unwrap();
@@ -51,6 +59,7 @@ impl ShaderCrateTemplateCargoTomlWriter {
         }
     }
 
+    /// Replace the output-dir
     fn replace_output_dir(&mut self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
         let package = self
             .table
