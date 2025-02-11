@@ -1,5 +1,7 @@
 //! Get config from the shader crate's `Cargo.toml` `[*.metadata.rust-gpu.*]`
 
+use serde_json::Value;
+
 /// `Metadata` refers to the `[metadata.*]` section of `Cargo.toml` that `cargo` formally
 /// ignores so that packages can implement their own behaviour with it.
 #[derive(Debug)]
@@ -59,8 +61,19 @@ impl Metadata {
             &mut metadata,
             {
                 log::debug!("looking for crate metadata");
-                let crate_meta = Self::get_crate_metadata(cargo_json, path)?;
+                let mut crate_meta = Self::get_crate_metadata(cargo_json, path)?;
                 log::trace!("crate_metadata: {crate_meta:#?}");
+                if let Some(output_path) = crate_meta.pointer_mut("/build/output_dir") {
+                    log::debug!("found output-dir path in crate metadata: {:?}", output_path);
+                    if let Some(output_dir) = output_path.clone().as_str() {
+                        let new_output_path = path.join(output_dir);
+                        *output_path = Value::String(format!("{}", new_output_path.display()));
+                        log::debug!(
+                            "setting that to be relative to the Cargo.toml it was found in: {}",
+                            new_output_path.display()
+                        );
+                    }
+                }
                 crate_meta
             },
             None,
