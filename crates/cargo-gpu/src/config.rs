@@ -185,10 +185,17 @@ mod test {
         let shader_crate_path = update_cargo_output_dir();
 
         let args = Config::clap_command_with_cargo_config(&shader_crate_path, vec![]).unwrap();
-        assert_eq!(
-            args.build_args.output_dir,
-            std::path::Path::new("/the/moon")
-        );
+        if cfg!(target_os = "windows") {
+            assert_eq!(
+                args.build_args.output_dir,
+                std::path::Path::new("C:/the/moon")
+            );
+        } else {
+            assert_eq!(
+                args.build_args.output_dir,
+                std::path::Path::new("/the/moon")
+            );
+        }
     }
 
     #[test_log::test]
