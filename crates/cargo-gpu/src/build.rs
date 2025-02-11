@@ -22,6 +22,7 @@ pub struct Build {
 
 impl Build {
     /// Entrypoint
+    #[expect(clippy::too_many_lines, reason = "these lines are fine")]
     pub fn run(&mut self) -> anyhow::Result<()> {
         let spirv_builder_cli_path = self.install.run()?;
 
@@ -102,7 +103,13 @@ impl Build {
                             .file_name()
                             .context("Couldn't parse file name from shader module path")?,
                     );
+                    log::debug!("copying {} to {}", filepath.display(), path.display());
                     std::fs::copy(&filepath, &path)?;
+                    log::debug!(
+                        "linkage of {} relative to {}",
+                        path.display(),
+                        self.install.spirv_install.shader_crate.display()
+                    );
                     let path_relative_to_shader_crate = path
                         .relative_to(&self.install.spirv_install.shader_crate)?
                         .to_path("");
