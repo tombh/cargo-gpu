@@ -23,7 +23,6 @@ clap = { version = "4.4.8", features = ["derive"] }
 chrono = { version = "0.4.38", default-features = false, features = ["std"] }
 crossterm = "0.28.1"
 directories = "5.0.1"
-env_home = "0.1.0"
 env_logger = "0.10"
 http = "1.2.0"
 log = "0.4"
