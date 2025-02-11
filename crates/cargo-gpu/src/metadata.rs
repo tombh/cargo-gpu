@@ -1,5 +1,7 @@
 //! Get config from the shader crate's `Cargo.toml` `[*.metadata.rust-gpu.*]`
 
+use serde_json::Value;
+
 /// `Metadata` refers to the `[metadata.*]` section of `Cargo.toml` that `cargo` formally
 /// ignores so that packages can implement their own behaviour with it.
 #[derive(Debug)]
@@ -47,12 +49,33 @@ impl Metadata {
         let mut metadata = crate::config::Config::defaults_as_json()?;
         crate::config::Config::json_merge(
             &mut metadata,
-            Self::get_workspace_metadata(cargo_json),
+            {
+                log::debug!("looking for workspace metadata");
+                let ws_meta = Self::get_workspace_metadata(cargo_json);
+                log::trace!("workspace_metadata: {ws_meta:#?}");
+                ws_meta
+            },
             None,
         )?;
         crate::config::Config::json_merge(
             &mut metadata,
-            Self::get_crate_metadata(cargo_json, path)?,
+            {
+                log::debug!("looking for crate metadata");
+                let mut crate_meta = Self::get_crate_metadata(cargo_json, path)?;
+                log::trace!("crate_metadata: {crate_meta:#?}");
+                if let Some(output_path) = crate_meta.pointer_mut("/build/output_dir") {
+                    log::debug!("found output-dir path in crate metadata: {:?}", output_path);
+                    if let Some(output_dir) = output_path.clone().as_str() {
+                        let new_output_path = path.join(output_dir);
+                        *output_path = Value::String(format!("{}", new_output_path.display()));
+                        log::debug!(
+                            "setting that to be relative to the Cargo.toml it was found in: {}",
+                            new_output_path.display()
+                        );
+                    }
+                }
+                crate_meta
+            },
             None,
         )?;
 
@@ -118,6 +141,7 @@ impl Metadata {
                     let manifest_path = manifest_path_dirty.replace(r"\\?\", "");
                     log::debug!("Matching shader crate path with manifest path: {shader_crate_path} == {manifest_path}?");
                     if manifest_path == shader_crate_path {
+                        log::debug!("...matches! Getting metadata");
                         let mut metadata = package
                             .pointer("/metadata/rust-gpu")
                             .unwrap_or(&empty_json_object)

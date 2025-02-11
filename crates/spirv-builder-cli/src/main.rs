@@ -112,11 +112,13 @@ pub fn main() {
 
     #[cfg(feature = "spirv-builder-pre-cli")]
     {
+        log::debug!("using spirv-builder-pre-cli");
         set_codegen_spirv_location(args.install.dylib_path);
     }
 
     #[cfg(feature = "spirv-builder-0_10")]
     {
+        log::debug!("using spirv-builder-0_10");
         builder = builder
             .rustc_codegen_spirv_location(args.install.dylib_path)
             .target_spec(args.build.shader_target);

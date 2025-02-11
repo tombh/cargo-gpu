@@ -104,9 +104,10 @@ impl Config {
             }
             (left, right) => {
                 if let Some(pointer) = maybe_pointer {
-                    let default = defaults
-                        .pointer(pointer)
-                        .context(format!("Config `{pointer}` not found in defaults"))?;
+                    let default = defaults.pointer(pointer).context(format!(
+                        "Configuration option with path `{pointer}` was not found in the default configuration, \
+                        which is:\ndefaults: {defaults:#?}"
+                    ))?;
                     if &right != default {
                         // Only overwrite if the new value differs from the defaults.
                         *left = right;
@@ -184,10 +185,17 @@ mod test {
         let shader_crate_path = update_cargo_output_dir();
 
         let args = Config::clap_command_with_cargo_config(&shader_crate_path, vec![]).unwrap();
-        assert_eq!(
-            args.build_args.output_dir,
-            std::path::Path::new("/the/moon")
-        );
+        if cfg!(target_os = "windows") {
+            assert_eq!(
+                args.build_args.output_dir,
+                std::path::Path::new("C:/the/moon")
+            );
+        } else {
+            assert_eq!(
+                args.build_args.output_dir,
+                std::path::Path::new("/the/moon")
+            );
+        }
     }
 
     #[test_log::test]
