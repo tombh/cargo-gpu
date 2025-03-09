@@ -13,6 +13,10 @@ const SPIRV_BUILDER_FILES: &[(&str, &str)] = &[
         include_str!("../../spirv-builder-cli/Cargo.toml"),
     ),
     (
+        "Cargo.lock",
+        include_str!("../../spirv-builder-cli/Cargo.lock"),
+    ),
+    (
         "src/main.rs",
         include_str!("../../spirv-builder-cli/src/main.rs"),
     ),
@@ -100,13 +104,14 @@ pub struct Install {
 
 impl Install {
     /// Returns a [`SpirvCLI`] instance, responsible for ensuring the right version of the `spirv-builder-cli` crate.
-    fn spirv_cli(&self, shader_crate_path: &std::path::PathBuf) -> anyhow::Result<SpirvCli> {
+    fn spirv_cli(&self, shader_crate_path: &std::path::Path) -> anyhow::Result<SpirvCli> {
         SpirvCli::new(
             shader_crate_path,
             self.spirv_install.spirv_builder_source.clone(),
             self.spirv_install.spirv_builder_version.clone(),
             self.spirv_install.rust_toolchain.clone(),
             self.spirv_install.auto_install_rust_toolchain,
+            self.spirv_install.force_overwrite_lockfiles_v4_to_v3,
         )
     }
 
@@ -217,25 +222,25 @@ impl Install {
                 self.spirv_install.shader_crate.display()
             );
 
-            let mut command = std::process::Command::new("cargo");
-            command
+            let mut build_command = std::process::Command::new("cargo");
+            build_command
                 .current_dir(&checkout)
                 .arg(format!("+{}", spirv_version.channel))
                 .args(["build", "--release"])
                 .args(["--no-default-features"]);
 
-            command.args([
+            build_command.args([
                 "--features",
                 &Self::get_required_spirv_builder_version(spirv_version.date)?,
             ]);
 
-            log::debug!("building artifacts with `{:?}`", command);
+            log::debug!("building artifacts with `{:?}`", build_command);
 
-            let output = command
+            let build_output = build_command
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
                 .output()?;
-            anyhow::ensure!(output.status.success(), "...build error!");
+            anyhow::ensure!(build_output.status.success(), "...build error!");
 
             if dylib_path.is_file() {
                 log::info!("successfully built {}", dylib_path.display());

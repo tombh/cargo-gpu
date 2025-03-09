@@ -1,6 +1,9 @@
+#![allow(clippy::shadow_reuse, reason = "let's not be silly")]
+#![allow(clippy::unwrap_used, reason = "this is basically a test")]
 //! `cargo gpu build`, analogous to `cargo build`
 
 use anyhow::Context as _;
+use std::io::Write as _;
 
 use crate::{install::Install, target_spec_dir};
 use spirv_builder_cli::{args::BuildArgs, Linkage, ShaderModule};
@@ -19,6 +22,7 @@ pub struct Build {
 
 impl Build {
     /// Entrypoint
+    #[expect(clippy::too_many_lines, reason = "It's not too confusing")]
     pub fn run(&mut self) -> anyhow::Result<()> {
         let spirv_builder_cli_path = self.install.run()?;
 
@@ -42,10 +46,12 @@ impl Build {
             std::env::current_dir()?.display()
         );
 
-        self.build_args.shader_target = target_spec_dir()?
-            .join(format!("{}.json", self.build_args.shader_target))
-            .display()
-            .to_string();
+        if !self.build_args.watch {
+            self.build_args.shader_target = target_spec_dir()?
+                .join(format!("{}.json", self.build_args.shader_target))
+                .display()
+                .to_string();
+        }
 
         let args_as_json = serde_json::json!({
             "install": self.install.spirv_install,
@@ -54,10 +60,12 @@ impl Build {
         let arg = serde_json::to_string_pretty(&args_as_json)?;
         log::info!("using spirv-builder-cli arg: {arg}");
 
-        crate::user_output!(
-            "Running `spirv-builder-cli` to compile shader at {}...\n",
-            self.install.spirv_install.shader_crate.display()
-        );
+        if !self.build_args.watch {
+            crate::user_output!(
+                "Running `spirv-builder-cli` to compile shader at {}...\n",
+                self.install.spirv_install.shader_crate.display()
+            );
+        }
 
         // Call spirv-builder-cli to compile the shaders.
         let output = std::process::Command::new(spirv_builder_cli_path)
@@ -95,17 +103,28 @@ impl Build {
                             .file_name()
                             .context("Couldn't parse file name from shader module path")?,
                     );
+                    log::debug!("copying {} to {}", filepath.display(), path.display());
                     std::fs::copy(&filepath, &path)?;
-                    let path_relative_to_shader_crate = path
-                        .relative_to(&self.install.spirv_install.shader_crate)?
-                        .to_path("");
-                    Ok(Linkage::new(entry, path_relative_to_shader_crate))
+                    log::debug!(
+                        "linkage of {} relative to {}",
+                        path.display(),
+                        self.install.spirv_install.shader_crate.display()
+                    );
+                    let spv_path = path
+                        .relative_to(&self.install.spirv_install.shader_crate)
+                        .map_or(path, |path_relative_to_shader_crate| {
+                            path_relative_to_shader_crate.to_path("")
+                        });
+                    Ok(Linkage::new(entry, spv_path))
                 },
             )
             .collect::<anyhow::Result<Vec<Linkage>>>()?;
 
         // Write the shader manifest json file
-        let manifest_path = self.build_args.output_dir.join("manifest.json");
+        let manifest_path = self
+            .build_args
+            .output_dir
+            .join(&self.build_args.manifest_file);
         // Sort the contents so the output is deterministic
         linkage.sort();
         let json = serde_json::to_string_pretty(&linkage)?;
@@ -131,7 +150,6 @@ impl Build {
             );
             std::fs::remove_file(spirv_manifest)?;
         }
-
         Ok(())
     }
 }
@@ -168,7 +186,7 @@ mod test {
             // For some reason running a full build (`build.run()`) inside tests fails on Windows.
             // The error is in the `build.rs` step of compiling `spirv-tools-sys`. It is not clear
             // from the logged error what the problem is. For now we'll just run a full build
-            // outside the tests environment, see `justfile`'s `build-shader-template`.
+            // outside the tests environment, see `xtask`'s `test-build`.
         } else {
             panic!("was not a build command");
         }

@@ -42,6 +42,32 @@ fn set_codegen_spirv_location(dylib_path: std::path::PathBuf) {
     std::env::set_var(env_var, path);
 }
 
+fn handle_compile_result(result: &CompileResult, args: &args::AllArgs) {
+    log::debug!("found entry points: {:#?}", result.entry_points);
+
+    let dir = &args.build.output_dir;
+    let mut shaders = vec![];
+    match &result.module {
+        ModuleResult::MultiModule(modules) => {
+            assert!(!modules.is_empty(), "No shader modules to compile");
+            for (entry, filepath) in modules.clone().into_iter() {
+                log::debug!("compiled {entry} {}", filepath.display());
+                shaders.push(ShaderModule::new(entry, filepath));
+            }
+        }
+        ModuleResult::SingleModule(filepath) => {
+            for entry in result.entry_points.clone() {
+                shaders.push(ShaderModule::new(entry, filepath.clone()));
+            }
+        }
+    }
+
+    use std::io::Write;
+    let mut file = std::fs::File::create(dir.join("spirv-manifest.json")).unwrap();
+    file.write_all(&serde_json::to_vec(&shaders).unwrap())
+        .unwrap();
+}
+
 pub fn main() {
     env_logger::builder().init();
 
@@ -54,6 +80,7 @@ pub fn main() {
     );
     log::debug!("with args: {args:#?}");
     let args: args::AllArgs = serde_json::from_str(&args[1]).unwrap();
+    let args_for_result = args.clone();
 
     let spirv_metadata = match args.build.spirv_metadata {
         args::SpirvMetadata::None => spirv_builder::SpirvMetadata::None,
@@ -61,77 +88,61 @@ pub fn main() {
         args::SpirvMetadata::Full => spirv_builder::SpirvMetadata::Full,
     };
 
-    let CompileResult {
-        entry_points,
-        module,
-    } = {
-        let mut builder = SpirvBuilder::new(args.install.shader_crate, &args.build.target)
-            .deny_warnings(args.build.deny_warnings)
-            .release(!args.build.debug)
-            .multimodule(args.build.multimodule)
-            .spirv_metadata(spirv_metadata)
-            .relax_struct_store(args.build.relax_struct_store)
-            .relax_logical_pointer(args.build.relax_logical_pointer)
-            .relax_block_layout(args.build.relax_block_layout)
-            .uniform_buffer_standard_layout(args.build.uniform_buffer_standard_layout)
-            .scalar_block_layout(args.build.scalar_block_layout)
-            .skip_block_layout(args.build.skip_block_layout)
-            .preserve_bindings(args.build.preserve_bindings)
-            .print_metadata(spirv_builder::MetadataPrintout::None);
+    let mut builder = SpirvBuilder::new(args.install.shader_crate, &args.build.target)
+        .deny_warnings(args.build.deny_warnings)
+        .release(!args.build.debug)
+        .multimodule(args.build.multimodule)
+        .spirv_metadata(spirv_metadata)
+        .relax_struct_store(args.build.relax_struct_store)
+        .relax_logical_pointer(args.build.relax_logical_pointer)
+        .relax_block_layout(args.build.relax_block_layout)
+        .uniform_buffer_standard_layout(args.build.uniform_buffer_standard_layout)
+        .scalar_block_layout(args.build.scalar_block_layout)
+        .skip_block_layout(args.build.skip_block_layout)
+        .preserve_bindings(args.build.preserve_bindings)
+        .print_metadata(spirv_builder::MetadataPrintout::None);
 
-        for capability in &args.build.capability {
-            builder = builder.capability(*capability);
+    for capability in &args.build.capability {
+        builder = builder.capability(*capability);
+    }
+
+    for extension in &args.build.extension {
+        builder = builder.extension(extension);
+    }
+
+    #[cfg(feature = "spirv-builder-pre-cli")]
+    {
+        log::debug!("using spirv-builder-pre-cli");
+        set_codegen_spirv_location(args.install.dylib_path);
+    }
+
+    #[cfg(feature = "spirv-builder-0_10")]
+    {
+        log::debug!("using spirv-builder-0_10");
+        builder = builder
+            .rustc_codegen_spirv_location(args.install.dylib_path)
+            .target_spec(args.build.shader_target);
+
+        if args.build.no_default_features {
+            log::info!("setting cargo --no-default-features");
+            builder = builder.shader_crate_default_features(false);
         }
-
-        for extension in &args.build.extension {
-            builder = builder.extension(extension);
-        }
-
-        #[cfg(feature = "spirv-builder-pre-cli")]
-        {
-            set_codegen_spirv_location(args.install.dylib_path);
-        }
-
-        #[cfg(feature = "spirv-builder-0_10")]
-        {
-            builder = builder
-                .rustc_codegen_spirv_location(args.install.dylib_path)
-                .target_spec(args.build.shader_target);
-
-            if args.build.no_default_features {
-                log::info!("setting cargo --no-default-features");
-                builder = builder.shader_crate_default_features(false);
-            }
-            if !args.build.features.is_empty() {
-                log::info!("setting --features {:?}", args.build.features);
-                builder = builder.shader_crate_features(args.build.features);
-            }
-        }
-
-        log::debug!("Calling `rust-gpu`'s `spirv-builder` library");
-        builder.build().unwrap()
-    };
-    log::debug!("found entry points: {entry_points:#?}");
-
-    let dir = args.build.output_dir;
-    let mut shaders = vec![];
-    match module {
-        ModuleResult::MultiModule(modules) => {
-            assert!(!modules.is_empty(), "No shader modules to compile");
-            for (entry, filepath) in modules.into_iter() {
-                log::debug!("compiled {entry} {}", filepath.display());
-                shaders.push(ShaderModule::new(entry, filepath));
-            }
-        }
-        ModuleResult::SingleModule(filepath) => {
-            for entry in entry_points {
-                shaders.push(ShaderModule::new(entry, filepath.clone()));
-            }
+        if !args.build.features.is_empty() {
+            log::info!("setting --features {:?}", args.build.features);
+            builder = builder.shader_crate_features(args.build.features);
         }
     }
 
-    use std::io::Write;
-    let mut file = std::fs::File::create(dir.join("spirv-manifest.json")).unwrap();
-    file.write_all(&serde_json::to_vec(&shaders).unwrap())
-        .unwrap();
+    log::debug!("Calling `rust-gpu`'s `spirv-builder` library");
+
+    if args.build.watch {
+        println!("🦀 Watching and recompiling shader on changes...");
+        builder.watch(move |compile_result| {
+            handle_compile_result(&compile_result, &args_for_result);
+        });
+        std::thread::park();
+    } else {
+        let result = builder.build().unwrap();
+        handle_compile_result(&result, &args_for_result);
+    }
 }
